@@ -1,0 +1,26 @@
+{
+  "name": "bong-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BONG CHAT - An all-in-one social networking platform",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "migrate": "npm run migrate -w server",
+    "seed": "npm run seed -w server",
+    "test": "npm run test -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
+  }
+}

@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 font-sans antialiased;
+    @apply dark:bg-ink-950 dark:text-ink-100;
+  }
+
+  ::selection {
+    @apply bg-brand-500/25;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .brand-gradient {
+    background-image: linear-gradient(135deg, #6366f1 0%, #a855f7 55%, #ec4899 100%);
+  }
+
+  .brand-text {
+    background-image: linear-gradient(135deg, #4f46e5 0%, #9333ea 55%, #ec4899 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .story-ring {
+    background: conic-gradient(from 180deg, #6366f1, #a855f7, #ec4899, #f59e0b, #6366f1);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-300/70 dark:bg-ink-700;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .card {
+    @apply rounded-3xl border border-ink-200/80 bg-white shadow-soft dark:border-ink-800 dark:bg-ink-900;
+  }
+
+  .input-base {
+    @apply w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 outline-none transition
+      placeholder:text-ink-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10
+      dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:placeholder:text-ink-500;
+  }
+
+  .link-text {
+    @apply text-brand-600 hover:underline dark:text-brand-400;
+  }
+}
+
+@layer components {
+  /* Surface: the standard raised panel used by every page and the sidebar. */
+  .surface {
+    @apply rounded-3xl border border-ink-200/70 bg-white/90 shadow-soft
+      dark:border-ink-800/70 dark:bg-ink-900/80;
+  }
+
+  /* Frosted panel for floating overlays such as toasts. */
+  .glass {
+    @apply border border-white/40 bg-white/75 backdrop-blur-md
+      dark:border-white/10 dark:bg-ink-900/70;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition
+      hover:bg-brand-700 active:bg-brand-800
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-ink-200/70 bg-white/70 px-3 py-2 text-sm font-medium text-ink-700 transition
+      hover:bg-ink-100 active:bg-ink-200/70
+      disabled:cursor-not-allowed disabled:opacity-60
+      dark:border-ink-700/70 dark:bg-ink-900/60 dark:text-ink-200 dark:hover:bg-ink-800 dark:active:bg-ink-700;
+  }
+}

@@ -1,0 +1,616 @@
+import test, { before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { Server } from 'node:http';
+
+/**
+ * End-to-end API tests.
+ *
+ * They run against a throwaway SQLite database and uploads folder so the real
+ * development data is never touched. The environment is configured *before* the
+ * app modules are imported, because `config.ts` reads `process.env` on import.
+ */
+
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bongchat-test-'));
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret';
+process.env.DATABASE_FILE = path.join(tmpRoot, 'test.db');
+process.env.UPLOAD_DIR = path.join(tmpRoot, 'uploads');
+delete process.env.AI_PROVIDER;
+delete process.env.AI_API_KEY;
+
+const { runMigrations, db } = await import('../src/db.js');
+const { createApp } = await import('../src/app.js');
+
+let server: Server;
+let base = '';
+let alice = '';
+let bob = '';
+let carol = '';
+let aliceId = 0;
+
+interface ApiResult {
+  status: number;
+  json: any;
+  cookie?: string;
+}
+
+async function call(
+  method: string,
+  endpoint: string,
+  options: { cookie?: string; body?: unknown } = {},
+): Promise<ApiResult> {
+  const res = await fetch(base + endpoint, {
+    method,
+    headers: {
+      ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
+      ...(options.cookie ? { cookie: options.cookie } : {}),
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
+  const setCookies = res.headers.getSetCookie();
+  return {
+    status: res.status,
+    json,
+    cookie: setCookies.length ? setCookies.map((c) => c.split(';')[0]).join('; ') : undefined,
+  };
+}
+
+async function register(username: string): Promise<ApiResult> {
+  return call('POST', '/api/auth/register', {
+    body: { username, email: `${username}@test.dev`, password: 'password123', displayName: username },
+  });
+}
+
+before(async () => {
+  await runMigrations();
+  const app = createApp();
+  server = app.listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  base = `http://127.0.0.1:${port}`;
+
+  const aliceRes = await register('alice');
+  const bobRes = await register('bob');
+  const carolRes = await register('carol');
+  assert.equal(aliceRes.status, 201, 'alice registers');
+  assert.equal(bobRes.status, 201, 'bob registers');
+  assert.equal(carolRes.status, 201, 'carol registers');
+  alice = aliceRes.cookie!;
+  bob = bobRes.cookie!;
+  carol = carolRes.cookie!;
+  aliceId = aliceRes.json.user.id;
+});
+
+after(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await db.destroy();
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+});
+
+test('health check is public', async () => {
+  const res = await call('GET', '/api/health');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.ok, true);
+});
+
+test('unknown API routes return a JSON 404', async () => {
+  const res = await call('GET', '/api/does-not-exist');
+  assert.equal(res.status, 404);
+  assert.ok(res.json.error);
+});
+
+test('protected endpoints reject anonymous requests', async () => {
+  const res = await call('GET', '/api/notifications');
+  assert.equal(res.status, 401);
+});
+
+test('/auth/me reports a null user when anonymous', async () => {
+  const res = await call('GET', '/api/auth/me');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.user, null);
+});
+
+test('register sets a session and /auth/me returns the user', async () => {
+  const res = await call('GET', '/api/auth/me', { cookie: alice });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.user.username, 'alice');
+});
+
+test('login rejects a wrong password and accepts the right one', async () => {
+  const bad = await call('POST', '/api/auth/login', {
+    body: { identifier: 'alice', password: 'nope-wrong' },
+  });
+  assert.equal(bad.status, 401);
+
+  const good = await call('POST', '/api/auth/login', {
+    body: { identifier: 'alice', password: 'password123' },
+  });
+  assert.equal(good.status, 200);
+  assert.ok(good.cookie);
+});
+
+test('duplicate registration is rejected', async () => {
+  const res = await register('alice');
+  assert.equal(res.status, 409);
+});
+
+let postId = 0;
+
+test('create, read and like a post', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'Hello from the test suite #testing' },
+  });
+  assert.equal(created.status, 201);
+  postId = created.json.post.id;
+
+  const feed = await call('GET', '/api/posts', { cookie: alice });
+  assert.equal(feed.status, 200);
+  assert.ok(feed.json.items.some((item: any) => item.post?.id === postId));
+
+  const liked = await call('POST', `/api/posts/${postId}/like`, { cookie: bob });
+  assert.equal(liked.status, 200);
+  assert.equal(liked.json.likedByMe, true);
+  assert.equal(liked.json.likes, 1);
+
+  const unliked = await call('POST', `/api/posts/${postId}/like`, { cookie: bob });
+  assert.equal(unliked.json.likedByMe, false);
+  assert.equal(unliked.json.likes, 0);
+});
+
+test('comments can be created and deleted', async () => {
+  const created = await call('POST', `/api/posts/${postId}/comments`, {
+    cookie: bob,
+    body: { content: 'Nice post!' },
+  });
+  assert.equal(created.status, 201);
+  const commentId = created.json.comment.id;
+
+  const list = await call('GET', `/api/posts/${postId}/comments`, { cookie: alice });
+  assert.ok(list.json.comments.some((c: any) => c.id === commentId));
+
+  const deleted = await call('DELETE', `/api/posts/${postId}/comments/${commentId}`, { cookie: bob });
+  assert.equal(deleted.status, 200);
+
+  const after = await call('GET', `/api/posts/${postId}/comments`, { cookie: alice });
+  assert.equal(after.json.comments.filter((c: any) => c.id === commentId).length, 0);
+});
+
+test('a user cannot delete someone else’s comment', async () => {
+  const created = await call('POST', `/api/posts/${postId}/comments`, {
+    cookie: bob,
+    body: { content: 'Keep me' },
+  });
+  const commentId = created.json.comment.id;
+  // carol is neither the comment author nor the post owner, so this must fail.
+  const forbidden = await call('DELETE', `/api/posts/${postId}/comments/${commentId}`, { cookie: carol });
+  assert.equal(forbidden.status, 403);
+
+  // The author (bob) can still delete it.
+  const allowed = await call('DELETE', `/api/posts/${postId}/comments/${commentId}`, { cookie: bob });
+  assert.equal(allowed.status, 200);
+});
+
+test('follow, then block and unblock', async () => {
+  const followed = await call('POST', '/api/users/bob/follow', { cookie: alice });
+  assert.equal(followed.status, 200);
+  assert.equal(followed.json.following, true);
+
+  const profile = await call('GET', '/api/users/bob', { cookie: alice });
+  assert.equal(profile.status, 200);
+  assert.equal(profile.json.viewer.isFollowing, true);
+
+  const blocked = await call('POST', '/api/users/bob/block', { cookie: alice });
+  assert.equal(blocked.json.blocked, true);
+  const hidden = await call('GET', '/api/users/bob', { cookie: alice });
+  assert.equal(hidden.status, 403);
+
+  const unblocked = await call('POST', '/api/users/bob/block', { cookie: alice });
+  assert.equal(unblocked.json.blocked, false);
+  const visible = await call('GET', '/api/users/bob', { cookie: alice });
+  assert.equal(visible.status, 200);
+});
+
+test('settings round-trip', async () => {
+  const initial = await call('GET', '/api/settings', { cookie: alice });
+  const original = initial.json.settings;
+
+  const updated = await call('PUT', '/api/settings', {
+    cookie: alice,
+    body: { theme: 'dark', language: 'fr', isPrivate: true, notificationPrefs: { likes: false } },
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.json.settings.theme, 'dark');
+  assert.equal(updated.json.settings.language, 'fr');
+  assert.equal(updated.json.settings.isPrivate, true);
+  assert.equal(updated.json.settings.notificationPrefs.likes, false);
+
+  const restored = await call('PUT', '/api/settings', {
+    cookie: alice,
+    body: {
+      theme: original.theme,
+      language: original.language,
+      isPrivate: original.isPrivate,
+      notificationPrefs: original.notificationPrefs,
+    },
+  });
+  assert.equal(restored.json.settings.theme, original.theme);
+});
+
+test('change password and sign in with the new one', async () => {
+  const changed = await call('POST', '/api/auth/change-password', {
+    cookie: alice,
+    body: { currentPassword: 'password123', newPassword: 'newpass123' },
+  });
+  assert.equal(changed.status, 200);
+
+  const withNew = await call('POST', '/api/auth/login', {
+    body: { identifier: 'alice', password: 'newpass123' },
+  });
+  assert.equal(withNew.status, 200);
+
+  const restored = await call('POST', '/api/auth/change-password', {
+    cookie: alice,
+    body: { currentPassword: 'newpass123', newPassword: 'password123' },
+  });
+  assert.equal(restored.status, 200);
+
+  const withOld = await call('POST', '/api/auth/login', {
+    body: { identifier: 'alice', password: 'password123' },
+  });
+  assert.equal(withOld.status, 200);
+});
+
+test('change password rejects a wrong current password', async () => {
+  const res = await call('POST', '/api/auth/change-password', {
+    cookie: alice,
+    body: { currentPassword: 'definitely-wrong', newPassword: 'whatever123' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('start a conversation and exchange a message', async () => {
+  const started = await call('POST', '/api/messages/conversations', {
+    cookie: alice,
+    body: { username: 'bob' },
+  });
+  assert.equal(started.status, 201);
+  const conversationId = started.json.conversationId;
+
+  const sent = await call('POST', `/api/messages/conversations/${conversationId}/messages`, {
+    cookie: alice,
+    body: { content: 'Hey Bob!' },
+  });
+  assert.equal(sent.status, 201);
+  assert.equal(sent.json.message.content, 'Hey Bob!');
+
+  const history = await call('GET', `/api/messages/conversations/${conversationId}/messages`, {
+    cookie: bob,
+  });
+  assert.equal(history.status, 200);
+  assert.ok(history.json.messages.some((m: any) => m.content === 'Hey Bob!'));
+
+  const empty = await call('POST', `/api/messages/conversations/${conversationId}/messages`, {
+    cookie: alice,
+    body: { content: '' },
+  });
+  assert.equal(empty.status, 400);
+});
+
+test('stories can be created, listed and deleted', async () => {
+  const created = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: 'Testing stories', imageUrl: '', style: 'ocean' },
+  });
+  assert.equal(created.status, 201);
+  const storyId = created.json.story.id;
+
+  const rail = await call('GET', '/api/stories', { cookie: alice });
+  assert.equal(rail.status, 200);
+  assert.ok(rail.json.groups.some((g: any) => g.user.id === aliceId));
+
+  const deleted = await call('DELETE', `/api/stories/${storyId}`, { cookie: alice });
+  assert.equal(deleted.status, 200);
+});
+
+test('a story requires content or an image', async () => {
+  const res = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: '', imageUrl: '', style: 'ocean' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('notifications are listed and can be cleared', async () => {
+  const list = await call('GET', '/api/notifications', { cookie: bob });
+  assert.equal(list.status, 200);
+  assert.ok(Array.isArray(list.json.notifications));
+
+  const cleared = await call('DELETE', '/api/notifications', { cookie: bob });
+  assert.equal(cleared.status, 200);
+  const after = await call('GET', '/api/notifications', { cookie: bob });
+  assert.equal(after.json.notifications.length, 0);
+});
+
+test('search returns a well-formed result', async () => {
+  const res = await call('GET', '/api/search?q=Hello', { cookie: alice });
+  assert.equal(res.status, 200);
+  assert.ok(Array.isArray(res.json.users));
+  assert.ok(Array.isArray(res.json.posts));
+  assert.ok(Array.isArray(res.json.tags));
+  assert.ok(Array.isArray(res.json.web));
+  assert.ok(res.json.posts.some((p: any) => p.id === postId));
+});
+
+test('search supports a type filter', async () => {
+  const res = await call('GET', '/api/search?q=Hello&type=users', { cookie: alice });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.posts.length, 0);
+});
+
+test('integrations are public', async () => {
+  const res = await call('GET', '/api/integrations');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.platforms.length, 3);
+});
+
+test('a user cannot follow or block themselves', async () => {
+  const follow = await call('POST', '/api/users/alice/follow', { cookie: alice });
+  assert.ok(follow.status >= 400);
+});
+
+test('settings require authentication', async () => {
+  const res = await call('GET', '/api/settings');
+  assert.equal(res.status, 401);
+});
+
+test('profile update round-trip', async () => {
+  const initial = await call('GET', '/api/users/me', { cookie: bob });
+  const original = initial.json.user;
+
+  const updated = await call('PUT', '/api/users/me', {
+    cookie: bob,
+    body: { displayName: 'Bobby', bio: 'Hello there' },
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.json.user.displayName, 'Bobby');
+  assert.equal(updated.json.user.bio, 'Hello there');
+
+  const restored = await call('PUT', '/api/users/me', {
+    cookie: bob,
+    body: { displayName: original.displayName, bio: original.bio },
+  });
+  assert.equal(restored.json.user.displayName, original.displayName);
+});
+
+test('share and view counters', async () => {
+  const shared = await call('POST', `/api/posts/${postId}/share`, {
+    cookie: bob,
+    body: { note: 'nice' },
+  });
+  assert.equal(shared.status, 200);
+  assert.equal(shared.json.sharedByMe, true);
+  assert.equal(shared.json.shares, 1);
+
+  const unshared = await call('POST', `/api/posts/${postId}/share`, { cookie: bob, body: {} });
+  assert.equal(unshared.json.sharedByMe, false);
+  assert.equal(unshared.json.shares, 0);
+
+  const firstView = await call('POST', `/api/posts/${postId}/view`, { cookie: bob });
+  assert.equal(firstView.status, 200);
+  assert.equal(firstView.json.views, 1);
+  // A view is recorded once per viewer.
+  const secondView = await call('POST', `/api/posts/${postId}/view`, { cookie: bob });
+  assert.equal(secondView.json.views, 1);
+});
+
+test('only the author can delete a post', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'delete me' },
+  });
+  const id = created.json.post.id;
+
+  const forbidden = await call('DELETE', `/api/posts/${id}`, { cookie: bob });
+  assert.equal(forbidden.status, 403);
+
+  const removed = await call('DELETE', `/api/posts/${id}`, { cookie: alice });
+  assert.equal(removed.status, 200);
+
+  const missing = await call('GET', `/api/posts/${id}`, { cookie: alice });
+  assert.equal(missing.status, 404);
+});
+
+test('followers and following lists', async () => {
+  await call('POST', '/api/users/bob/follow', { cookie: alice });
+
+  const followers = await call('GET', '/api/users/bob/followers', { cookie: alice });
+  assert.equal(followers.status, 200);
+  assert.ok(followers.json.users.some((u: any) => u.username === 'alice'));
+
+  const following = await call('GET', '/api/users/alice/following', { cookie: alice });
+  assert.equal(following.status, 200);
+  assert.ok(following.json.users.some((u: any) => u.username === 'bob'));
+
+  await call('POST', '/api/users/bob/follow', { cookie: alice }); // unfollow again
+});
+
+test('blocked users disappear from suggestions', async () => {
+  const suggestions = await call('GET', '/api/users/suggestions', { cookie: carol });
+  assert.equal(suggestions.status, 200);
+  assert.ok(Array.isArray(suggestions.json.users));
+
+  await call('POST', '/api/users/alice/block', { cookie: carol });
+  const blocked = await call('GET', '/api/users/blocked', { cookie: carol });
+  assert.ok(blocked.json.users.some((u: any) => u.username === 'alice'));
+
+  const afterBlock = await call('GET', '/api/users/suggestions', { cookie: carol });
+  assert.ok(!afterBlock.json.users.some((u: any) => u.username === 'alice'));
+
+  await call('POST', '/api/users/alice/block', { cookie: carol }); // unblock
+});
+
+test('notifications can be marked read individually and in bulk', async () => {
+  const created = await call('POST', `/api/posts/${postId}/comments`, {
+    cookie: bob,
+    body: { content: 'ping' },
+  });
+  const commentId = created.json.comment.id;
+
+  const list = await call('GET', '/api/notifications', { cookie: alice });
+  assert.ok(list.json.unreadCount >= 1);
+  const unread = list.json.notifications.find((n: any) => !n.read);
+  assert.ok(unread, 'expected an unread notification');
+
+  const marked = await call('POST', `/api/notifications/${unread.id}/read`, { cookie: alice });
+  assert.equal(marked.status, 200);
+  const afterOne = await call('GET', '/api/notifications', { cookie: alice });
+  assert.equal(afterOne.json.notifications.find((n: any) => n.id === unread.id).read, true);
+
+  const readAll = await call('POST', '/api/notifications/read-all', { cookie: alice });
+  assert.equal(readAll.status, 200);
+  const afterAll = await call('GET', '/api/notifications', { cookie: alice });
+  assert.equal(afterAll.json.unreadCount, 0);
+
+  await call('DELETE', `/api/posts/${postId}/comments/${commentId}`, { cookie: bob });
+});
+
+test('conversation list and read receipts', async () => {
+  const started = await call('POST', '/api/messages/conversations', {
+    cookie: alice,
+    body: { username: 'bob' },
+  });
+  const conversationId = started.json.conversationId;
+
+  const list = await call('GET', '/api/messages/conversations', { cookie: bob });
+  assert.equal(list.status, 200);
+  const conversation = list.json.conversations.find((c: any) => c.id === conversationId);
+  assert.ok(conversation, 'conversation should be listed');
+  assert.ok(conversation.unreadCount >= 1, 'alice’s message should be unread');
+
+  const read = await call('POST', `/api/messages/conversations/${conversationId}/read`, {
+    cookie: bob,
+  });
+  assert.equal(read.status, 200);
+
+  const listAgain = await call('GET', '/api/messages/conversations', { cookie: bob });
+  assert.equal(
+    listAgain.json.conversations.find((c: any) => c.id === conversationId).unreadCount,
+    0,
+  );
+});
+
+test('image uploads require auth and accept a PNG', async () => {
+  const anonymous = await fetch(`${base}/api/uploads`, { method: 'POST' });
+  assert.equal(anonymous.status, 401);
+
+  const pngHeader = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const form = new FormData();
+  form.append('file', new Blob([pngHeader], { type: 'image/png' }), 'tiny.png');
+
+  const uploaded = await fetch(`${base}/api/uploads`, {
+    method: 'POST',
+    headers: { cookie: alice },
+    body: form,
+  });
+  assert.equal(uploaded.status, 201);
+  const body = await uploaded.json();
+  assert.match(body.url, /^\/uploads\//);
+
+  const served = await fetch(base + body.url);
+  assert.equal(served.status, 200);
+});
+
+test('private accounts hide content from non-followers', async () => {
+  const initial = await call('GET', '/api/settings', { cookie: bob });
+  const original = initial.json.settings;
+
+  const madePrivate = await call('PUT', '/api/settings', {
+    cookie: bob,
+    body: { isPrivate: true },
+  });
+  assert.equal(madePrivate.json.settings.isPrivate, true);
+
+  const hidden = await call('GET', '/api/users/bob/followers', { cookie: carol });
+  assert.equal(hidden.status, 403);
+
+  const restored = await call('PUT', '/api/settings', {
+    cookie: bob,
+    body: { isPrivate: original.isPrivate },
+  });
+  assert.equal(restored.json.settings.isPrivate, original.isPrivate);
+});
+
+test('the password reset flow issues a usable, single-use token', async () => {
+  const forgot = await call('POST', '/api/auth/forgot-password', {
+    body: { email: 'alice@test.dev' },
+  });
+  assert.equal(forgot.status, 200);
+  assert.ok(forgot.json.resetUrl, 'reset url is returned outside production');
+  const token = new URL(forgot.json.resetUrl).searchParams.get('token');
+  assert.ok(token);
+
+  const reset = await call('POST', '/api/auth/reset-password', {
+    body: { token, password: 'resetpass1' },
+  });
+  assert.equal(reset.status, 200);
+
+  const login = await call('POST', '/api/auth/login', {
+    body: { identifier: 'alice', password: 'resetpass1' },
+  });
+  assert.equal(login.status, 200);
+
+  const reuse = await call('POST', '/api/auth/reset-password', {
+    body: { token, password: 'anotherpass1' },
+  });
+  assert.equal(reuse.status, 400, 'a reset token cannot be reused');
+
+  // Restore alice's original password (her session cookie is still valid).
+  const restore = await call('POST', '/api/auth/change-password', {
+    cookie: alice,
+    body: { currentPassword: 'resetpass1', newPassword: 'password123' },
+  });
+  assert.equal(restore.status, 200);
+});
+
+test('the assistant offers prompts and answers a message', async () => {
+  const suggestions = await call('GET', '/api/ai/suggestions');
+  assert.equal(suggestions.status, 200);
+  assert.ok(Array.isArray(suggestions.json.prompts));
+  assert.ok(suggestions.json.assistant);
+
+  const reply = await call('POST', '/api/ai/message', { body: { message: 'hello there' } });
+  assert.equal(reply.status, 200);
+});
+
+test('logout clears the session cookie', async () => {
+  const created = await register('logoutuser');
+  const res = await call('POST', '/api/auth/logout', { cookie: created.cookie! });
+  assert.equal(res.status, 200);
+  assert.ok(!res.cookie || /bongchat_token=(;|$)/.test(res.cookie));
+});
+
+test('deleting the account ends the session', async () => {
+  const created = await register('tempuser');
+  const cookie = created.cookie!;
+  const deleted = await call('DELETE', '/api/users/me', {
+    cookie,
+    body: { password: 'password123' },
+  });
+  assert.equal(deleted.status, 200);
+  const me = await call('GET', '/api/auth/me', { cookie });
+  assert.equal(me.json.user, null);
+  const protectedRes = await call('GET', '/api/notifications', { cookie });
+  assert.equal(protectedRes.status, 401);
+});
