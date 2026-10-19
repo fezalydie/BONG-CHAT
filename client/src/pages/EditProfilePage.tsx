@@ -51,6 +51,7 @@ export function EditProfilePage() {
           <div className="mt-2 flex items-center gap-3">
             <img
               src={form.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg'}
+              alt="Avatar preview"
               className="h-16 w-16 rounded-full object-cover"
             />
             <label className="btn-ghost cursor-pointer">
