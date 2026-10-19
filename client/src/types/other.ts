@@ -4,6 +4,7 @@ export interface Story {
   id: number
   content: string
   imageUrl: string
+  videoUrl: string
   style: string
   createdAt: string
   expiresAt: string

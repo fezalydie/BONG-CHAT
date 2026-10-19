@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { asyncHandler, likeQuery, ok } from '../utils/http.js';
 import { optionalAuth } from '../middleware/auth.js';
-import { canViewContent, blockedIds, extractHashtags, feedAuthorIds, mapUser } from '../utils/users.js';
+import { canViewContent, blockedIds, extractHashtags, feedAuthorIds, mapAuthor, mapUser } from '../utils/users.js';
 
 export const searchRouter = Router();
 
@@ -73,6 +73,7 @@ searchRouter.get(
           'p.views',
           'p.created_at',
           'p.user_id',
+          'u.id as uid',
           'u.username',
           'u.display_name',
           'u.avatar_url',
@@ -93,7 +94,7 @@ searchRouter.get(
           imageUrl: row.image_url,
           views: Number(row.views ?? 0),
           createdAt: row.created_at,
-          author: mapUser(row),
+          author: mapAuthor(row),
         });
       }
       posts = visible;

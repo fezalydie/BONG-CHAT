@@ -124,15 +124,27 @@ export function PostCard({ item }: { item: FeedItem }) {
         </div>
       </div>
       <div className="mt-4 flex items-center justify-between border-t border-slate-200/70 pt-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <button className={`flex items-center gap-1.5 ${liked ? 'text-rose-600' : ''}`} onClick={like}>
+        <button
+          className={`flex items-center gap-1.5 ${liked ? 'text-rose-600' : ''}`}
+          onClick={like}
+          aria-label={liked ? 'Unlike post' : 'Like post'}
+        >
           <Heart className={`h-4 w-4 ${liked ? 'fill-rose-600' : ''}`} />
           {likes}
         </button>
-        <button className="flex items-center gap-1.5" onClick={() => navigate(`/post/${post.id}`)}>
+        <button
+          className="flex items-center gap-1.5"
+          onClick={() => navigate(`/post/${post.id}`)}
+          aria-label="View comments"
+        >
           <MessageCircle className="h-4 w-4" />
           {post.comments}
         </button>
-        <button className={`flex items-center gap-1.5 ${shared ? 'text-brand-600' : ''}`} onClick={share}>
+        <button
+          className={`flex items-center gap-1.5 ${shared ? 'text-brand-600' : ''}`}
+          onClick={share}
+          aria-label={shared ? 'Unshare post' : 'Share post'}
+        >
           <Share2 className="h-4 w-4" />
           {shares}
         </button>

@@ -28,6 +28,8 @@ export function MessagesPage() {
   const convQueryRef = useRef('')
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [threadError, setThreadError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   // Set while prepending older pages so the view doesn't jump to the bottom.
@@ -35,20 +37,30 @@ export function MessagesPage() {
 
   const loadConversations = async () => {
     const q = convQueryRef.current.trim()
-    const data = await api<any>(
-      q ? `/messages/conversations?q=${encodeURIComponent(q)}` : '/messages/conversations',
-    )
-    setConversations(data.conversations)
-    void refreshUnreadMessages()
+    try {
+      const data = await api<any>(
+        q ? `/messages/conversations?q=${encodeURIComponent(q)}` : '/messages/conversations',
+      )
+      setConversations(data.conversations)
+      setLoadError(null)
+      void refreshUnreadMessages()
+    } catch (err: any) {
+      setLoadError(err?.message || 'Could not load your conversations.')
+    }
   }
 
   const loadMessages = async () => {
     if (!cid) return
-    const data = await api<any>(`/messages/conversations/${cid}/messages`)
-    setMessages(data.messages)
-    setHasMore(Boolean(data.hasMore))
-    await api<any>(`/messages/conversations/${cid}/read`, { method: 'POST' })
-    void refreshUnreadMessages()
+    try {
+      const data = await api<any>(`/messages/conversations/${cid}/messages`)
+      setMessages(data.messages)
+      setHasMore(Boolean(data.hasMore))
+      await api<any>(`/messages/conversations/${cid}/read`, { method: 'POST' })
+      setThreadError(null)
+      void refreshUnreadMessages()
+    } catch (err: any) {
+      setThreadError(err?.message || 'Could not load this conversation.')
+    }
   }
 
   // Fetch the page of history older than what's already on screen.
@@ -181,7 +193,18 @@ export function MessagesPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversations.length === 0 && (
+          {loadError && (
+            <div
+              className="m-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300"
+              role="alert"
+            >
+              {loadError}
+              <button className="btn-ghost mt-2 w-full text-xs" onClick={() => void loadConversations()}>
+                Try again
+              </button>
+            </div>
+          )}
+          {!loadError && conversations.length === 0 && (
             <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
               {convQuery.trim() ? 'No conversations match your search.' : 'No conversations yet.'}
             </div>
@@ -240,6 +263,17 @@ export function MessagesPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="mx-auto flex max-w-2xl flex-col gap-2">
+                {threadError && (
+                  <div
+                    className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300"
+                    role="alert"
+                  >
+                    {threadError}
+                    <button className="btn-ghost mt-2 w-full text-xs" onClick={() => void loadMessages()}>
+                      Try again
+                    </button>
+                  </div>
+                )}
                 {hasMore && (
                   <div className="flex justify-center pb-1">
                     <button
@@ -252,7 +286,7 @@ export function MessagesPage() {
                     </button>
                   </div>
                 )}
-                {messages.length === 0 && (
+                {messages.length === 0 && !threadError && (
                   <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
                     No messages yet — say hello 👋
                   </div>
@@ -302,7 +336,7 @@ export function MessagesPage() {
                 >
                   {sendingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
                 </button>
-                <button className="btn-primary" onClick={send}>
+                <button className="btn-primary" onClick={send} aria-label="Send message">
                   <Send className="h-4 w-4" />
                 </button>
               </div>

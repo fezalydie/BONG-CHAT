@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Image as ImageIcon, Type as TypeIcon, Loader2 } from 'lucide-react'
+import { Image as ImageIcon, Video as VideoIcon, Type as TypeIcon, Loader2 } from 'lucide-react'
 import { api, apiForm } from '@/lib/api'
 import { STORY_GRADIENTS, STORY_STYLES } from '@/lib/stories'
 import { Modal } from '@/components/common/Modal'
@@ -16,6 +16,7 @@ export function CreateStoryModal({ open, onClose, onCreated }: CreateStoryModalP
   const toast = useToast()
   const [content, setContent] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
   const [style, setStyle] = useState('sunset')
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -24,17 +25,25 @@ export function CreateStoryModal({ open, onClose, onCreated }: CreateStoryModalP
   const reset = () => {
     setContent('')
     setImageUrl('')
+    setVideoUrl('')
     setStyle('sunset')
   }
 
   const attach = async (file?: File) => {
     if (!file) return
+    const isVideo = file.type.startsWith('video/')
     setUploading(true)
     try {
       const form = new FormData()
       form.append('file', file)
-      const data = await apiForm<{ url: string }>('/uploads', form)
-      setImageUrl(data.url)
+      const data = await apiForm<{ url: string }>(isVideo ? '/uploads/video' : '/uploads', form)
+      if (isVideo) {
+        setVideoUrl(data.url)
+        setImageUrl('')
+      } else {
+        setImageUrl(data.url)
+        setVideoUrl('')
+      }
     } catch (err: any) {
       toast.push({ title: 'Upload failed', description: err.message, type: 'error' })
     } finally {
@@ -43,15 +52,15 @@ export function CreateStoryModal({ open, onClose, onCreated }: CreateStoryModalP
   }
 
   const publish = async () => {
-    if (!content.trim() && !imageUrl) {
-      toast.push({ title: 'Add a photo or some text first.', type: 'error' })
+    if (!content.trim() && !imageUrl && !videoUrl) {
+      toast.push({ title: 'Add a photo, video or some text first.', type: 'error' })
       return
     }
     setSaving(true)
     try {
       await api<any>('/stories', {
         method: 'POST',
-        body: JSON.stringify({ content: content.trim(), imageUrl, style }),
+        body: JSON.stringify({ content: content.trim(), imageUrl, videoUrl, style }),
       })
       toast.push({ title: 'Story published', description: 'It disappears in 24 hours.', type: 'success' })
       reset()
@@ -70,10 +79,29 @@ export function CreateStoryModal({ open, onClose, onCreated }: CreateStoryModalP
         <div
           className={cn(
             'relative flex min-h-64 items-center justify-center overflow-hidden rounded-3xl p-6',
-            imageUrl ? 'bg-ink-950' : STORY_GRADIENTS[style],
+            imageUrl || videoUrl ? 'bg-ink-950' : STORY_GRADIENTS[style],
           )}
         >
-          {imageUrl ? (
+          {videoUrl ? (
+            <>
+              <video
+                src={videoUrl}
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="absolute inset-0 h-full w-full object-cover opacity-90"
+              />
+              <textarea
+                value={content}
+                onChange={(event) => setContent(event.target.value)}
+                rows={2}
+                maxLength={280}
+                placeholder="Add a caption…"
+                className="relative z-10 mt-auto w-full resize-none rounded-2xl bg-black/50 px-4 py-3 text-center text-lg font-semibold text-white outline-none backdrop-blur placeholder:text-white/70"
+              />
+            </>
+          ) : imageUrl ? (
             <>
               <img
                 src={imageUrl}
@@ -106,16 +134,28 @@ export function CreateStoryModal({ open, onClose, onCreated }: CreateStoryModalP
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             hidden
             onChange={(event) => void attach(event.target.files?.[0])}
           />
           <button className="btn-ghost" onClick={() => fileRef.current?.click()} disabled={uploading}>
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-            {imageUrl ? 'Replace photo' : 'Photo'}
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : videoUrl ? (
+              <VideoIcon className="h-4 w-4" />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
+            )}
+            {imageUrl || videoUrl ? 'Replace media' : 'Photo or video'}
           </button>
-          {imageUrl && (
-            <button className="btn-ghost" onClick={() => setImageUrl('')}>
+          {(imageUrl || videoUrl) && (
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                setImageUrl('')
+                setVideoUrl('')
+              }}
+            >
               <TypeIcon className="h-4 w-4" />
               Text only
             </button>

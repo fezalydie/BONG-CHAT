@@ -7,7 +7,7 @@ npm-workspaces monorepo.
 ## Features
 
 - **Feed** — create posts with photos, like, share, comment and delete your own content.
-- **Stories** — 24-hour photo/text stories with gradient backgrounds (they expire automatically).
+- **Stories** — 24-hour photo, video or text stories with gradient backgrounds (they expire automatically).
 - **Messaging** — real-time 1:1 conversations over Socket.IO, with photo messages and a "new message" people picker.
 - **Notifications** — likes, comments, follows, shares and messages; mark one or all as read, or clear them.
 - **Search** — unified search across people, posts and hashtags, plus quick web shortcuts.
@@ -137,7 +137,8 @@ variables have sensible defaults for local development.
 | `DATABASE_FILE`      | `./data/bongchat.db`     | SQLite file path (relative to `server/`)               |
 | `DATABASE_URL`       | —                        | PostgreSQL connection string (when `DB_CLIENT=pg`)     |
 | `UPLOAD_DIR`         | `./uploads`              | Where uploaded images are stored                       |
-| `MAX_UPLOAD_MB`      | `8`                      | Maximum upload size in megabytes                       |
+| `MAX_UPLOAD_MB`      | `8`                      | Maximum image upload size in megabytes                 |
+| `MAX_VIDEO_MB`       | `50`                     | Maximum story-video upload size in megabytes           |
 | `STORY_TTL_HOURS`    | `24`                     | How long a story lasts before expiring                 |
 | `AI_PROVIDER`        | —                        | AI provider id; when unset, the built-in assistant is used |
 | `AI_API_KEY`         | —                        | API key for the AI provider                            |
@@ -159,7 +160,7 @@ session cookie.
 | Notifications | `GET /notifications`, `POST /notifications/read-all`, `POST /notifications/:id/read`, `DELETE /notifications` |
 | Search        | `GET /search?q=&type=`                                                                    |
 | Settings      | `GET /settings`, `PUT /settings`                                                          |
-| Uploads       | `POST /uploads` (multipart `file`; returns `{ url }`)                                     |
+| Uploads       | `POST /uploads` (image) and `POST /uploads/video` (video) — multipart `file`; returns `{ url }` |
 | AI            | `GET /ai/suggestions`, `POST /ai/message`                                                 |
 | Integrations  | `GET /integrations` (public — Facebook / Instagram / WhatsApp entry points)               |
 
@@ -175,4 +176,4 @@ unread/notification counts.
   route requests to any OpenAI-compatible endpoint.
 - **Database** — SQLite is used by default for zero-config local runs.
   Migrations are applied automatically on server start and via `npm run migrate`.
-- **Uploads** — images are written to `server/uploads` and served at `/uploads/*`.
+- **Uploads** — images and story videos are written to `server/uploads` and served at `/uploads/*`.

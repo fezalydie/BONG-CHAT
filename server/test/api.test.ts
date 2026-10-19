@@ -169,6 +169,28 @@ test('create, read and like a post', async () => {
   assert.equal(unliked.json.likes, 0);
 });
 
+test('post authors expose the real user id, not the post id', async () => {
+  // Push the post ids past the user ids so a coincidence can't hide the bug.
+  await call('POST', '/api/posts', { cookie: alice, body: { content: 'filler one' } });
+  await call('POST', '/api/posts', { cookie: alice, body: { content: 'filler two' } });
+
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'author id check' },
+  });
+  assert.equal(created.status, 201);
+  assert.notEqual(created.json.post.id, aliceId, 'precondition: post id differs from user id');
+  assert.equal(created.json.post.author.id, aliceId);
+
+  const single = await call('GET', `/api/posts/${created.json.post.id}`, { cookie: alice });
+  assert.equal(single.json.post.author.id, aliceId);
+
+  const feed = await call('GET', '/api/posts', { cookie: alice });
+  const mine = feed.json.items.find((item: any) => item.post?.id === created.json.post.id);
+  assert.ok(mine, 'the post appears in the feed');
+  assert.equal(mine.post.author.id, aliceId);
+});
+
 test('comments can be created and deleted', async () => {
   const created = await call('POST', `/api/posts/${postId}/comments`, {
     cookie: bob,
@@ -324,12 +346,33 @@ test('stories can be created, listed and deleted', async () => {
   assert.equal(deleted.status, 200);
 });
 
-test('a story requires content or an image', async () => {
+test('a story requires content, an image or a video', async () => {
   const res = await call('POST', '/api/stories', {
     cookie: alice,
-    body: { content: '', imageUrl: '', style: 'ocean' },
+    body: { content: '', imageUrl: '', videoUrl: '', style: 'ocean' },
   });
   assert.equal(res.status, 400);
+});
+
+test('a story can carry a video instead of an image', async () => {
+  const created = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: 'Video story', videoUrl: '/uploads/demo.mp4', style: 'sunset' },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.story.videoUrl, '/uploads/demo.mp4');
+  assert.equal(created.json.story.imageUrl, '');
+  // The author id must be the creator's user id, not the story id.
+  const me = await call('GET', '/api/auth/me', { cookie: alice });
+  assert.equal(created.json.story.author.id, me.json.user.id);
+
+  const rail = await call('GET', '/api/stories', { cookie: alice });
+  const mine = rail.json.groups.find((g: any) => g.user.id === created.json.story.author.id);
+  assert.ok(mine);
+  assert.ok(mine.stories.some((s: any) => s.videoUrl === '/uploads/demo.mp4'));
+
+  const deleted = await call('DELETE', `/api/stories/${created.json.story.id}`, { cookie: alice });
+  assert.equal(deleted.status, 200);
 });
 
 test('notifications are listed and can be cleared', async () => {
@@ -497,6 +540,8 @@ test('conversation list and read receipts', async () => {
   assert.equal(list.status, 200);
   const conversation = list.json.conversations.find((c: any) => c.id === conversationId);
   assert.ok(conversation, 'conversation should be listed');
+  assert.equal(conversation.user.username, 'alice');
+  assert.equal(conversation.user.id, aliceId, 'the counterpart exposes a real user id');
   assert.ok(conversation.unreadCount >= 1, 'alice’s message should be unread');
 
   const read = await call('POST', `/api/messages/conversations/${conversationId}/read`, {
@@ -530,6 +575,29 @@ test('image uploads require auth and accept a PNG', async () => {
 
   const served = await fetch(base + body.url);
   assert.equal(served.status, 200);
+});
+
+test('the video upload endpoint accepts video and rejects images', async () => {
+  const video = new FormData();
+  video.append('file', new Blob([new Uint8Array([0, 0, 0, 24])], { type: 'video/mp4' }), 'clip.mp4');
+  const uploaded = await fetch(base + '/api/uploads/video', {
+    method: 'POST',
+    headers: { cookie: alice },
+    body: video,
+  });
+  assert.equal(uploaded.status, 201);
+  const body = await uploaded.json();
+  assert.equal(body.kind, 'video');
+  assert.match(body.url, /\.mp4$/);
+
+  const image = new FormData();
+  image.append('file', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }), 'pic.png');
+  const rejected = await fetch(base + '/api/uploads/video', {
+    method: 'POST',
+    headers: { cookie: alice },
+    body: image,
+  });
+  assert.equal(rejected.status, 400);
 });
 
 test('private accounts hide content from non-followers', async () => {
@@ -614,3 +682,4 @@ test('deleting the account ends the session', async () => {
   const protectedRes = await call('GET', '/api/notifications', { cookie });
   assert.equal(protectedRes.status, 401);
 });
+

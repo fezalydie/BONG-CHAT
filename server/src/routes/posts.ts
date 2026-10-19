@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db, isoNow } from '../db.js';
 import { asyncHandler, HttpError, likeQuery, ok } from '../utils/http.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import { canViewContent, extractHashtags, feedAuthorIds, mapUser } from '../utils/users.js';
+import { canViewContent, extractHashtags, feedAuthorIds, mapAuthor, mapUser } from '../utils/users.js';
 import { notify } from '../services/notify.js';
 
 export const postsRouter = Router();
@@ -50,7 +50,7 @@ async function decorate(postRows: Record<string, any>[], viewerId: number | unde
     views: Number(p.views ?? 0),
     createdAt: p.created_at,
     hashtags: extractHashtags(p.content),
-    author: mapUser(p),
+    author: mapAuthor(p),
     likes: likeMap.get(p.id) ?? 0,
     comments: commentMap.get(p.id) ?? 0,
     shares: shareMap.get(p.id) ?? 0,
@@ -103,6 +103,7 @@ postsRouter.get(
         'p.views',
         'p.created_at',
         'p.user_id',
+        'u.id as uid',
         'u.username',
         'u.display_name',
         'u.avatar_url',
@@ -137,6 +138,7 @@ postsRouter.get(
           's.created_at as share_created_at',
           's.user_id as sharer_id',
           'p.*',
+          'author.id as uid',
           'author.username',
           'author.display_name',
           'author.avatar_url',
@@ -208,7 +210,7 @@ postsRouter.post(
     const row = await db('posts as p')
       .join('users as u', 'u.id', 'p.user_id')
       .where('p.id', typeof id === 'object' ? (id as any).id : id)
-      .select('p.*', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.is_private', 'u.created_at as u_created_at')
+      .select('p.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.is_private', 'u.created_at as u_created_at')
       .first();
     const [post] = await decorate([row], req.user!.id);
     ok(res, { post }, 201);
@@ -222,7 +224,7 @@ postsRouter.get(
     const row = await db('posts as p')
       .join('users as u', 'u.id', 'p.user_id')
       .where('p.id', Number(req.params.id))
-      .select('p.*', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.is_private', 'u.created_at as u_created_at')
+      .select('p.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.is_private', 'u.created_at as u_created_at')
       .first();
     if (!row) throw new HttpError(404, 'Post not found.');
     if (!(await canViewContent(req.user?.id, row.user_id))) {

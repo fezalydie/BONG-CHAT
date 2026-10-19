@@ -23,9 +23,21 @@ export function mapUser(row: Record<string, any>): PublicUser {
   };
 }
 
+/**
+ * Map a *joined* row (a parent row plus user columns) into a public user.
+ * Joined queries alias the user id as `uid` and the user's own `created_at` as
+ * `u_created_at`, because the parent row already owns `id` and `created_at`.
+ */
+export function mapAuthor(row: Record<string, any>): PublicUser {
+  return mapUser({
+    ...row,
+    id: row.uid ?? row.user_id,
+    created_at: row.u_created_at ?? row.created_at,
+  });
+}
+
 /** Relationship of the viewer towards the profile owner. */
-export interface ViewerFlags {
-  isMe: boolean;
+export interface ViewerFlags {  isMe: boolean;
   isFollowing: boolean;
   isFollowedBy: boolean;
   isBlocked: boolean;

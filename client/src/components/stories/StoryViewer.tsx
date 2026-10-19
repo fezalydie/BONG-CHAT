@@ -38,10 +38,15 @@ export function StoryViewer() {
   }, [])
 
   const loadGroups = async (): Promise<StoryGroup[]> => {
-    const data = await api<any>('/stories')
-    const loaded: StoryGroup[] = data.groups ?? []
-    setGroups(loaded)
-    return loaded
+    try {
+      const data = await api<any>('/stories')
+      const loaded: StoryGroup[] = data.groups ?? []
+      setGroups(loaded)
+      return loaded
+    } catch {
+      // Nothing to open if the rail can't be loaded.
+      return []
+    }
   }
 
   const group = useMemo(() => groups.find((g) => g.user.id === activeUser) ?? null, [groups, activeUser])
@@ -75,9 +80,19 @@ export function StoryViewer() {
       </button>
       <div className="relative flex h-[90vh] w-[90vw] max-w-md flex-col overflow-hidden rounded-3xl">
         <div className={`flex-1 ${gradient} relative flex items-center justify-center p-6 text-white`}>
-          {story.imageUrl && (
+          {story.videoUrl ? (
+            <video
+              key={story.id}
+              src={story.videoUrl}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="absolute inset-0 h-full w-full object-cover opacity-90"
+            />
+          ) : story.imageUrl ? (
             <img src={story.imageUrl} alt="story" className="absolute inset-0 h-full w-full object-cover opacity-80" />
-          )}
+          ) : null}
           <div className="relative z-10 text-center">
             <div className="text-sm opacity-80">@{group.user.username}</div>
             <div className="mt-2 text-2xl font-semibold">{story.content}</div>

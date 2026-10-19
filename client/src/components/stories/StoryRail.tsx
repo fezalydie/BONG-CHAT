@@ -9,8 +9,12 @@ export function StoryRail() {
   const [creating, setCreating] = useState(false)
 
   const load = async () => {
-    const data = await api<any>('/stories')
-    setGroups(data.groups ?? [])
+    try {
+      const data = await api<any>('/stories')
+      setGroups(data.groups ?? [])
+    } catch {
+      /* keep whatever was last loaded so the rail stays usable */
+    }
   }
 
   useEffect(() => {

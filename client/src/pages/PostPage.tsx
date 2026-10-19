@@ -99,11 +99,12 @@ export function PostPage() {
           <input
             className="flex-1 rounded-2xl border border-slate-200 bg-white/90 px-4 py-2.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900/80"
             placeholder="Add a comment..."
+            aria-label="Add a comment"
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addComment()}
           />
-          <button className="btn-primary" onClick={addComment}>
+          <button className="btn-primary" onClick={addComment} aria-label="Post comment">
             <Send className="h-4 w-4" />
           </button>
         </div>

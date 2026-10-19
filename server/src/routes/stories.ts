@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db, isoNow, isoInHours } from '../db.js';
 import { asyncHandler, HttpError, ok } from '../utils/http.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import { canViewContent, mapUser } from '../utils/users.js';
+import { canViewContent, mapAuthor, mapUser } from '../utils/users.js';
 
 export const storiesRouter = Router();
 
@@ -14,6 +14,7 @@ function mapStory(row: Record<string, any>) {
     id: row.id,
     content: row.content,
     imageUrl: row.image_url,
+    videoUrl: row.video_url ?? '',
     style: row.style,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
@@ -46,7 +47,7 @@ storiesRouter.get(
     const viewerId = req.user?.id;
     const rows = await db('stories as s')
       .join('users as u', 'u.id', 's.user_id')
-      .select('s.*', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
+      .select('s.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
       .orderBy('s.created_at', 'desc')
       .limit(300);
 
@@ -54,7 +55,7 @@ storiesRouter.get(
     for (const row of rows) {
       if (!(await canViewContent(viewerId, row.user_id))) continue;
       if (!groups[row.user_id]) {
-        groups[row.user_id] = { user: mapUser(row), stories: [], hasUnseen: false, latestAt: row.created_at };
+        groups[row.user_id] = { user: mapAuthor(row), stories: [], hasUnseen: false, latestAt: row.created_at };
       }
       groups[row.user_id].stories.push(mapStory(row));
     }
@@ -83,11 +84,12 @@ storiesRouter.post(
       .object({
         content: z.string().trim().max(280).optional().default(''),
         imageUrl: z.string().trim().max(500).optional().default(''),
+        videoUrl: z.string().trim().max(500).optional().default(''),
         style: z.enum(GRADIENTS as [string, ...string[]]).optional().default('sunset'),
       })
       .parse(req.body);
-    if (!body.content && !body.imageUrl) {
-      throw new HttpError(400, 'Add a photo or some text to your story.');
+    if (!body.content && !body.imageUrl && !body.videoUrl) {
+      throw new HttpError(400, 'Add a photo, a video or some text to your story.');
     }
     const now = isoNow();
     const [id] = await db('stories')
@@ -95,6 +97,7 @@ storiesRouter.post(
         user_id: req.user!.id,
         content: body.content,
         image_url: body.imageUrl,
+        video_url: body.videoUrl,
         style: body.style,
         created_at: now,
         expires_at: isoInHours(Number(process.env.STORY_TTL_HOURS ?? 24)),
@@ -103,7 +106,7 @@ storiesRouter.post(
     const row = await db('stories as s')
       .join('users as u', 'u.id', 's.user_id')
       .where('s.id', typeof id === 'object' ? (id as any).id : id)
-      .select('s.*', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
+      .select('s.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
       .first();
     ok(res, { story: mapStory(row) }, 201);
   }),
@@ -117,7 +120,7 @@ storiesRouter.get(
     const row = await db('stories as s')
       .join('users as u', 'u.id', 's.user_id')
       .where('s.id', Number(req.params.id))
-      .select('s.*', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
+      .select('s.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.is_private')
       .first();
     if (!row) throw new HttpError(404, 'Story not found.');
     if (!(await canViewContent(req.user?.id, row.user_id))) throw new HttpError(403, 'Not allowed.');

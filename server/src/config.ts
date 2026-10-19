@@ -24,6 +24,7 @@ export const config = {
   uploadDir: path.resolve(serverRoot, process.env.UPLOAD_DIR ?? './uploads'),
   dataDir: path.resolve(serverRoot, './data'),
   maxUploadBytes: num(process.env.MAX_UPLOAD_MB, 8) * 1024 * 1024,
+  maxVideoBytes: num(process.env.MAX_VIDEO_MB, 50) * 1024 * 1024,
   storyTtlHours: num(process.env.STORY_TTL_HOURS, 24),
   ai: {
     enabled: Boolean(process.env.AI_PROVIDER && process.env.AI_API_KEY),

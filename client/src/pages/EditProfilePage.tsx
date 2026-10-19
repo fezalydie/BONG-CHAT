@@ -62,16 +62,22 @@ export function EditProfilePage() {
           </div>
         </div>
         <div>
-          <label className="text-sm font-medium">Display name</label>
+          <label className="text-sm font-medium" htmlFor="displayName">
+            Display name
+          </label>
           <input
+            id="displayName"
             className="mt-2 w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-2.5 text-sm dark:border-slate-800 dark:bg-slate-900/80"
             value={form.displayName}
             onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
           />
         </div>
         <div>
-          <label className="text-sm font-medium">Bio</label>
+          <label className="text-sm font-medium" htmlFor="bio">
+            Bio
+          </label>
           <textarea
+            id="bio"
             rows={3}
             className="mt-2 w-full rounded-2xl border border-slate-200 bg-white/90 p-4 text-sm dark:border-slate-800 dark:bg-slate-900/80"
             value={form.bio}

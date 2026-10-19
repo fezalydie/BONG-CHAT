@@ -11,13 +11,19 @@ export function HomePage() {
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(false)
   const [page, setPage] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
   const load = async (reset = false) => {
     const p = reset ? 0 : page
-    const data = await api<any>(`/posts?page=${p}`)
-    setItems((prev) => (reset ? data.items : [...prev, ...data.items]))
-    setHasMore(data.hasMore)
-    setPage(reset ? 1 : p + 1)
+    try {
+      const data = await api<any>(`/posts?page=${p}`)
+      setItems((prev) => (reset ? data.items : [...prev, ...data.items]))
+      setHasMore(data.hasMore)
+      setPage(reset ? 1 : p + 1)
+      setError(null)
+    } catch (err: any) {
+      setError(err?.message || 'Could not load your feed.')
+    }
   }
 
   useEffect(() => {
@@ -38,6 +44,20 @@ export function HomePage() {
         </Link>
       </div>
       <div className="flex flex-col gap-4">
+        {error && (
+          <div className="surface flex flex-col items-center gap-3 p-6 text-center">
+            <p className="text-sm text-slate-500 dark:text-slate-400">{error}</p>
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                setLoading(true)
+                load(true).finally(() => setLoading(false))
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
         {items.map((item, i) => (
           <PostCard key={`${item.kind}-${i}`} item={item} />
         ))}
@@ -46,7 +66,7 @@ export function HomePage() {
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         )}
-        {!loading && hasMore && (
+        {!loading && hasMore && !error && (
           <button className="btn-ghost self-center" onClick={() => load()}>
             Load more
           </button>

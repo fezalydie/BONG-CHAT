@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db, isoNow } from '../db.js';
 import { asyncHandler, HttpError, likeQuery, ok } from '../utils/http.js';
 import { requireAuth } from '../middleware/auth.js';
-import { blockedIds, mapUser, linkify } from '../utils/users.js';
+import { blockedIds, mapAuthor, mapUser, linkify } from '../utils/users.js';
 import { emitToUser, isOnline } from '../sockets/index.js';
 import { notify } from '../services/notify.js';
 
@@ -88,7 +88,7 @@ messagesRouter.get(
       result.push({
         id: row.conversation_id,
         user: {
-          ...mapUser(row),
+          ...mapAuthor(row),
           lastSeenAt: row.last_seen_at,
           online: isOnline(row.uid),
         },

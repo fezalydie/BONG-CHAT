@@ -14,11 +14,21 @@ export function SearchPage() {
   const { query } = useParams<{ query: string }>()
   const [q, setQ] = useState(query || '')
   const [result, setResult] = useState<SearchResult>(EMPTY)
+  const [error, setError] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
 
   const search = async (term: string) => {
     if (!term.trim()) return
-    const data = await api<any>(`/search?q=${encodeURIComponent(term)}`)
-    setResult({ ...EMPTY, ...data })
+    setSearching(true)
+    try {
+      const data = await api<any>(`/search?q=${encodeURIComponent(term)}`)
+      setResult({ ...EMPTY, ...data })
+      setError(null)
+    } catch (err: any) {
+      setError(err?.message || 'Search failed. Please try again.')
+    } finally {
+      setSearching(false)
+    }
   }
 
   useEffect(() => {
@@ -48,10 +58,19 @@ export function SearchPage() {
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && search(q)}
         />
-        <button className="btn-primary" onClick={() => search(q)}>
-          Search
+        <button className="btn-primary" onClick={() => search(q)} disabled={searching}>
+          {searching ? 'Searching…' : 'Search'}
         </button>
       </div>
+
+      {error && (
+        <div className="surface flex flex-col items-center gap-3 p-6 text-center" role="alert">
+          <p className="text-sm text-slate-500 dark:text-slate-400">{error}</p>
+          <button className="btn-ghost" onClick={() => search(q)}>
+            Try again
+          </button>
+        </div>
+      )}
 
       {result.tags.length > 0 && (
         <div className="surface p-4">
@@ -134,7 +153,7 @@ export function SearchPage() {
         </div>
       )}
 
-      {!hasResults && q.trim() !== '' && (
+      {!hasResults && !error && q.trim() !== '' && (
         <div className="surface p-8 text-center text-sm text-slate-500">No results for “{q}”</div>
       )}
     </div>
