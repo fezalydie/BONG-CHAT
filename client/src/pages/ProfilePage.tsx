@@ -5,7 +5,7 @@ import type { PublicUser, ViewerFlags, UserStats } from '@/types/user'
 import type { Post } from '@/types/post'
 import { PostCard } from '@/components/posts/PostCard'
 import { Modal } from '@/components/common/Modal'
-import { Edit3, Lock, Loader2, ShieldOff } from 'lucide-react'
+import { Edit3, Lock, Loader2, MessageCircle, ShieldOff } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/common/Toast'
 
@@ -21,6 +21,7 @@ export function ProfilePage() {
   const [listKind, setListKind] = useState<'followers' | 'following' | null>(null)
   const [listUsers, setListUsers] = useState<PublicUser[]>([])
   const [listLoading, setListLoading] = useState(false)
+  const [messaging, setMessaging] = useState(false)
   const isMe = !username || username === user?.username
 
   const load = async () => {
@@ -46,6 +47,23 @@ export function ProfilePage() {
       setStats((s) => ({ ...s, followers: data.followers }))
     } catch (err: any) {
       toast.push({ title: 'Error', description: err.message, type: 'error' })
+    }
+  }
+
+  // Open (or reuse) the direct conversation with this person and jump into it.
+  const message = async () => {
+    if (!profile || messaging) return
+    setMessaging(true)
+    try {
+      const data = await api<{ conversationId: number }>('/messages/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ username: profile.username }),
+      })
+      navigate(`/messages/${data.conversationId}`)
+    } catch (err: any) {
+      toast.push({ title: 'Could not open chat', description: err.message, type: 'error' })
+    } finally {
+      setMessaging(false)
     }
   }
 
@@ -124,9 +142,10 @@ export function ProfilePage() {
                 <button className="btn-ghost" onClick={follow}>
                   {viewer?.isFollowing ? 'Unfollow' : 'Follow'}
                 </button>
-                <Link className="btn-ghost" to={`/messages`}>
+                <button className="btn-ghost" onClick={() => void message()} disabled={messaging}>
+                  {messaging ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                   Message
-                </Link>
+                </button>
                 <button className="btn-ghost text-rose-600 dark:text-rose-400" onClick={block} title="Block user">
                   <ShieldOff className="h-4 w-4" />
                   Block

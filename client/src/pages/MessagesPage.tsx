@@ -4,7 +4,7 @@ import { api, apiForm } from '@/lib/api'
 import type { Conversation, ChatMessage } from '@/types/chat'
 import { useAuth } from '@/context/AuthContext'
 import { useSocket, useSocketEvent } from '@/context/SocketContext'
-import { Send, Image as ImageIcon, Plus, Loader2 } from 'lucide-react'
+import { Send, Search, ChevronLeft, Image as ImageIcon, Plus, Loader2 } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
@@ -24,10 +24,20 @@ export function MessagesPage() {
   const [content, setContent] = useState('')
   const [composing, setComposing] = useState(false)
   const [sendingImage, setSendingImage] = useState(false)
+  const [convQuery, setConvQuery] = useState('')
+  const convQueryRef = useRef('')
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const bottomRef = useRef<HTMLDivElement | null>(null)
+  // Set while prepending older pages so the view doesn't jump to the bottom.
+  const preserveScrollRef = useRef(false)
 
   const loadConversations = async () => {
-    const data = await api<any>('/messages/conversations')
+    const q = convQueryRef.current.trim()
+    const data = await api<any>(
+      q ? `/messages/conversations?q=${encodeURIComponent(q)}` : '/messages/conversations',
+    )
     setConversations(data.conversations)
     void refreshUnreadMessages()
   }
@@ -36,17 +46,50 @@ export function MessagesPage() {
     if (!cid) return
     const data = await api<any>(`/messages/conversations/${cid}/messages`)
     setMessages(data.messages)
+    setHasMore(Boolean(data.hasMore))
     await api<any>(`/messages/conversations/${cid}/read`, { method: 'POST' })
     void refreshUnreadMessages()
   }
 
+  // Fetch the page of history older than what's already on screen.
+  const loadOlder = async () => {
+    if (!cid || loadingOlder || messages.length === 0) return
+    setLoadingOlder(true)
+    preserveScrollRef.current = true
+    try {
+      const oldest = messages[0].id
+      const data = await api<any>(`/messages/conversations/${cid}/messages?before=${oldest}`)
+      setMessages((list) => [...data.messages, ...list])
+      setHasMore(Boolean(data.hasMore))
+    } catch (err: any) {
+      preserveScrollRef.current = false
+      toast.push({ title: 'Could not load older messages', description: err.message, type: 'error' })
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
+  // Reload the list whenever the search term changes (debounced while typing).
   useEffect(() => {
-    loadConversations()
-  }, [])
+    const timer = setTimeout(() => {
+      convQueryRef.current = convQuery
+      void loadConversations()
+    }, convQuery ? 250 : 0)
+    return () => clearTimeout(timer)
+  }, [convQuery])
 
   useEffect(() => {
     loadMessages()
   }, [cid])
+
+  // Keep the newest message in view, except when older history is being prepended.
+  useEffect(() => {
+    if (preserveScrollRef.current) {
+      preserveScrollRef.current = false
+      return
+    }
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages.length, cid])
 
   useSocketEvent('message:new', (incoming: ChatMessage) => {
     if (incoming.conversationId !== cid) return
@@ -60,6 +103,12 @@ export function MessagesPage() {
   })
 
   useSocketEvent('conversation:updated', () => {
+    loadConversations()
+  })
+
+  // Another tab/device marked a conversation read — refresh its row and the badge.
+  useSocketEvent('conversation:read', (payload: { conversationId?: number }) => {
+    if (payload?.conversationId === cid) return
     loadConversations()
   })
 
@@ -107,7 +156,7 @@ export function MessagesPage() {
 
   return (
     <div className="surface flex h-[calc(100vh-8rem)] overflow-hidden">
-      <div className="hidden w-80 border-r border-slate-200/70 dark:border-slate-800/70 md:flex md:flex-col">
+      <div className={`${cid ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-slate-200/70 dark:border-slate-800/70 md:w-80`}>
         <div className="border-b border-slate-200/70 p-4 dark:border-slate-800/70">
           <div className="flex items-center justify-between">
             <div className="text-lg font-semibold">Messages</div>
@@ -120,7 +169,23 @@ export function MessagesPage() {
             </button>
           </div>
         </div>
+        <div className="border-b border-slate-200/70 p-3 dark:border-slate-800/70">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={convQuery}
+              onChange={(e) => setConvQuery(e.target.value)}
+              placeholder="Search conversations"
+              className="input-base py-2 pl-9 text-sm"
+            />
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto">
+          {conversations.length === 0 && (
+            <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              {convQuery.trim() ? 'No conversations match your search.' : 'No conversations yet.'}
+            </div>
+          )}
           {conversations.map((c) => (
             <Link
               key={c.id}
@@ -129,6 +194,7 @@ export function MessagesPage() {
             >
               <img
                 src={c.user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.user.username}`}
+                alt={c.user.displayName}
                 className="h-10 w-10 rounded-full object-cover"
               />
               <div className="min-w-0 flex-1">
@@ -145,10 +211,17 @@ export function MessagesPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col">
+      <div className={`${cid ? 'flex' : 'hidden md:flex'} flex-1 flex-col`}>
         {cid ? (
           <>
             <div className="flex items-center gap-3 border-b border-slate-200/70 p-4 dark:border-slate-800/70">
+              <button
+                className="btn-ghost h-9 w-9 rounded-full p-0 md:hidden"
+                title="Back to conversations"
+                onClick={() => navigate('/messages')}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
               {active && (
                 <>
                   <img
@@ -167,18 +240,42 @@ export function MessagesPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="mx-auto flex max-w-2xl flex-col gap-2">
+                {hasMore && (
+                  <div className="flex justify-center pb-1">
+                    <button
+                      className="btn-ghost text-xs"
+                      onClick={() => void loadOlder()}
+                      disabled={loadingOlder}
+                    >
+                      {loadingOlder && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      Load older messages
+                    </button>
+                  </div>
+                )}
+                {messages.length === 0 && (
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No messages yet — say hello 👋
+                  </div>
+                )}
                 {messages.map((m) => {
                   const mine = m.sender.id === user?.id
                   return (
                     <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] rounded-3xl px-4 py-2 text-sm ${mine ? 'bg-brand-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                        {m.imageUrl && <img src={m.imageUrl} className="mb-2 rounded-2xl" />}
+                        {m.imageUrl && (
+                          <img
+                            src={m.imageUrl}
+                            alt={mine ? 'Photo you sent' : `Photo from ${m.sender.displayName}`}
+                            className="mb-2 rounded-2xl"
+                          />
+                        )}
                         <div className="whitespace-pre-wrap">{m.content}</div>
                         <div className={`mt-1 text-[10px] ${mine ? 'text-white/70' : 'text-slate-500'}`}>{dayjs(m.createdAt).fromNow()}</div>
                       </div>
                     </div>
                   )
                 })}
+                <div ref={bottomRef} />
               </div>
             </div>
             <div className="border-t border-slate-200/70 p-4 dark:border-slate-800/70">
@@ -227,7 +324,7 @@ export function MessagesPage() {
         onClose={() => setComposing(false)}
         onStarted={async (conversationId) => {
           await loadConversations()
-      await refreshUnreadMessages()
+          await refreshUnreadMessages()
           navigate(`/messages/${conversationId}`)
         }}
       />

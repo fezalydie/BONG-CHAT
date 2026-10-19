@@ -7,12 +7,10 @@ import {
   Settings,
   Bell,
   Sparkles,
-  Facebook,
-  Instagram,
-  MessageSquareText,
   LogOut,
   Plus,
 } from 'lucide-react'
+import { BongChatLogo, PLATFORM_ICONS } from '@/components/BrandIcons'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { useSocket } from '@/context/SocketContext'
@@ -27,6 +25,27 @@ const navItems = [
   { to: '/settings', icon: Settings, label: 'Settings' },
   { to: '/ai', icon: Sparkles, label: 'AI Assistant' },
 ]
+
+const quickLinks = [
+  {
+    key: 'facebook',
+    label: 'Facebook',
+    href: 'https://www.facebook.com/',
+    color: 'text-[#1877F2]',
+  },
+  {
+    key: 'instagram',
+    label: 'Instagram',
+    href: 'https://www.instagram.com/',
+    color: 'text-[#E1306C]',
+  },
+  {
+    key: 'whatsapp',
+    label: 'WhatsApp',
+    href: 'https://web.whatsapp.com/',
+    color: 'text-[#25D366]',
+  },
+] as const
 
 export function Sidebar() {
   const { user, logout, unreadNotifications } = useAuth()
@@ -44,9 +63,7 @@ export function Sidebar() {
       <div className="surface flex flex-col gap-6 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-md">
-              B
-            </div>
+            <BongChatLogo className="h-10 w-10 rounded-xl shadow-md" />
             <div>
               <div className="text-lg font-semibold">BONG CHAT</div>
               <div className="text-xs text-slate-500 dark:text-slate-400">All-in-one social hub</div>
@@ -92,33 +109,21 @@ export function Sidebar() {
             Quick links
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <a
-              className="flex flex-col items-center gap-1 rounded-2xl border border-slate-200/70 bg-white/90 p-3 text-xs font-medium shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/80"
-              href="https://www.facebook.com/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Facebook className="h-5 w-5 text-[#1877F2]" />
-              Facebook
-            </a>
-            <a
-              className="flex flex-col items-center gap-1 rounded-2xl border border-slate-200/70 bg-white/90 p-3 text-xs font-medium shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/80"
-              href="https://www.instagram.com/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Instagram className="h-5 w-5 text-[#E1306C]" />
-              Instagram
-            </a>
-            <a
-              className="flex flex-col items-center gap-1 rounded-2xl border border-slate-200/70 bg-white/90 p-3 text-xs font-medium shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/80"
-              href="https://web.whatsapp.com/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <MessageSquareText className="h-5 w-5 text-[#25D366]" />
-              WhatsApp
-            </a>
+            {quickLinks.map(({ key, label, href, color }) => {
+              const Icon = PLATFORM_ICONS[key]
+              return (
+                <a
+                  key={key}
+                  className="flex flex-col items-center gap-1 rounded-2xl border border-slate-200/70 bg-white/90 p-3 text-xs font-medium shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/80"
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Icon className={`h-5 w-5 ${color}`} />
+                  {label}
+                </a>
+              )
+            })}
           </div>
         </div>
 
