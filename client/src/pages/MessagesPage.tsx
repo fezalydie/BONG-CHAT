@@ -32,8 +32,11 @@ export function MessagesPage() {
   const [threadError, setThreadError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   // Set while prepending older pages so the view doesn't jump to the bottom.
   const preserveScrollRef = useRef(false)
+  // Whether the newest message is in view; a new message only forces a scroll when true.
+  const atBottomRef = useRef(true)
 
   const loadConversations = async () => {
     const q = convQueryRef.current.trim()
@@ -65,20 +68,37 @@ export function MessagesPage() {
 
   // Fetch the page of history older than what's already on screen.
   const loadOlder = async () => {
-    if (!cid || loadingOlder || messages.length === 0) return
+    if (!cid || loadingOlder || messages.length === 0 || !hasMore) return
     setLoadingOlder(true)
     preserveScrollRef.current = true
+    const box = scrollRef.current
+    const previousHeight = box?.scrollHeight ?? 0
     try {
       const oldest = messages[0].id
       const data = await api<any>(`/messages/conversations/${cid}/messages?before=${oldest}`)
       setMessages((list) => [...data.messages, ...list])
       setHasMore(Boolean(data.hasMore))
+      // Keep the messages the reader was looking at in the same place.
+      if (box) {
+        requestAnimationFrame(() => {
+          box.scrollTop = box.scrollHeight - previousHeight
+        })
+      }
     } catch (err: any) {
       preserveScrollRef.current = false
       toast.push({ title: 'Could not load older messages', description: err.message, type: 'error' })
     } finally {
       setLoadingOlder(false)
     }
+  }
+
+  // Infinite scroll: reaching the top pulls in the next page of history.
+  const onScroll = () => {
+    const box = scrollRef.current
+    if (!box) return
+    const distanceFromBottom = box.scrollHeight - box.scrollTop - box.clientHeight
+    atBottomRef.current = distanceFromBottom < 80
+    if (box.scrollTop < 60) void loadOlder()
   }
 
   // Reload the list whenever the search term changes (debounced while typing).
@@ -91,15 +111,19 @@ export function MessagesPage() {
   }, [convQuery])
 
   useEffect(() => {
+    // Opening a conversation should always land on the newest message.
+    atBottomRef.current = true
     loadMessages()
   }, [cid])
 
-  // Keep the newest message in view, except when older history is being prepended.
+  // Keep the newest message in view, except when older history is being prepended
+  // or the reader has deliberately scrolled up into the history.
   useEffect(() => {
     if (preserveScrollRef.current) {
       preserveScrollRef.current = false
       return
     }
+    if (!atBottomRef.current) return
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages.length, cid])
 
@@ -261,7 +285,7 @@ export function MessagesPage() {
                 </>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-4">
               <div className="mx-auto flex max-w-2xl flex-col gap-2">
                 {threadError && (
                   <div
@@ -282,7 +306,7 @@ export function MessagesPage() {
                       disabled={loadingOlder}
                     >
                       {loadingOlder && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      Load older messages
+                      {loadingOlder ? 'Loading…' : 'Load older messages'}
                     </button>
                   </div>
                 )}
