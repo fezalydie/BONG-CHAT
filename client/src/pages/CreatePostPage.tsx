@@ -1,24 +1,33 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, apiForm } from '@/lib/api'
-import { Image as ImageIcon, X } from 'lucide-react'
+import { Image as ImageIcon, Video as VideoIcon, X } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 
 export function CreatePostPage() {
   const [content, setContent] = useState('')
   const [imageUrl, setImageUrl] = useState('')
-  const [uploading, setUploading] = useState(false)
+  const [videoUrl, setVideoUrl] = useState('')
+  const [uploading, setUploading] = useState<false | 'image' | 'video'>(false)
   const navigate = useNavigate()
   const toast = useToast()
 
-  const uploadImage = async (file: File) => {
-    setUploading(true)
+  const upload = async (file: File, kind: 'image' | 'video') => {
+    setUploading(kind)
     try {
       const form = new FormData()
       form.append('file', file)
-      const data = await apiForm<any>('/uploads', form)
-      setImageUrl(data.url)
-      toast.push({ title: 'Image uploaded', type: 'success' })
+      // Video goes to the video endpoint (larger limit, video mime types).
+      const data = await apiForm<{ url: string }>(kind === 'video' ? '/uploads/video' : '/uploads', form)
+      // A post carries one attachment; picking a new one replaces the old.
+      if (kind === 'video') {
+        setVideoUrl(data.url)
+        setImageUrl('')
+      } else {
+        setImageUrl(data.url)
+        setVideoUrl('')
+      }
+      toast.push({ title: kind === 'video' ? 'Video uploaded' : 'Image uploaded', type: 'success' })
     } catch (err: any) {
       toast.push({ title: 'Upload failed', description: err.message, type: 'error' })
     } finally {
@@ -26,9 +35,14 @@ export function CreatePostPage() {
     }
   }
 
+  const clearMedia = () => {
+    setImageUrl('')
+    setVideoUrl('')
+  }
+
   const submit = async () => {
     try {
-      await api<any>('/posts', { method: 'POST', body: JSON.stringify({ content, imageUrl }) })
+      await api<any>('/posts', { method: 'POST', body: JSON.stringify({ content, imageUrl, videoUrl }) })
       toast.push({ title: 'Post created', type: 'success' })
       navigate('/')
     } catch (err: any) {
@@ -47,28 +61,59 @@ export function CreatePostPage() {
         onChange={(e) => setContent(e.target.value)}
       />
       <div className="mt-3">
-        {imageUrl ? (
+        {imageUrl && (
           <div className="relative">
             <img src={imageUrl} alt="preview" className="rounded-2xl" />
-            <button className="absolute right-2 top-2 btn-ghost h-8 w-8 rounded-full p-0" onClick={() => setImageUrl('')}>
+            <button
+              className="absolute right-2 top-2 btn-ghost h-8 w-8 rounded-full p-0"
+              onClick={clearMedia}
+              aria-label="Remove photo"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
-        ) : (
-          <label className="btn-ghost cursor-pointer">
-            <ImageIcon className="h-4 w-4" />
-            {uploading ? 'Uploading...' : 'Add photo'}
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])}
-            />
-          </label>
+        )}
+        {videoUrl && (
+          <div className="relative overflow-hidden rounded-2xl bg-black">
+            <video src={videoUrl} className="max-h-96 w-full" controls playsInline preload="metadata" />
+            <button
+              className="absolute right-2 top-2 btn-ghost h-8 w-8 rounded-full p-0"
+              onClick={clearMedia}
+              aria-label="Remove video"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        {!imageUrl && !videoUrl && (
+          <div className="flex flex-wrap gap-2">
+            <label className="btn-ghost cursor-pointer">
+              <ImageIcon className="h-4 w-4" />
+              {uploading === 'image' ? 'Uploading...' : 'Add photo'}
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                disabled={!!uploading}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], 'image')}
+              />
+            </label>
+            <label className="btn-ghost cursor-pointer">
+              <VideoIcon className="h-4 w-4" />
+              {uploading === 'video' ? 'Uploading...' : 'Add video'}
+              <input
+                type="file"
+                accept="video/*"
+                hidden
+                disabled={!!uploading}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], 'video')}
+              />
+            </label>
+          </div>
         )}
       </div>
       <div className="mt-4 flex justify-end">
-        <button className="btn-primary" onClick={submit} disabled={!content && !imageUrl}>
+        <button className="btn-primary" onClick={submit} disabled={!content && !imageUrl && !videoUrl}>
           Post
         </button>
       </div>

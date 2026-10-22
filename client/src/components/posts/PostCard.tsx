@@ -115,6 +115,11 @@ export function PostCard({ item }: { item: FeedItem }) {
             <img src={post.imageUrl} alt="post" className="h-full w-full object-cover" />
           </div>
         )}
+        {post.videoUrl && (
+          <div className="overflow-hidden rounded-3xl bg-black">
+            <video src={post.videoUrl} className="h-full w-full" controls playsInline preload="metadata" />
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
           {post.hashtags.map((tag) => (
             <Link key={tag} to={`/search/${encodeURIComponent(`#${tag}`)}`} className="hover:text-brand-600">

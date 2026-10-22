@@ -16,7 +16,7 @@ export function MessagesPage() {
   const { id } = useParams<{ id: string }>()
   const cid = id ? Number(id) : null
   const { user } = useAuth()
-  const { refreshUnreadMessages, isUserOnline } = useSocket()
+  const { refreshUnreadMessages, isUserOnline, sendTyping } = useSocket()
   const toast = useToast()
   const navigate = useNavigate()
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -37,6 +37,14 @@ export function MessagesPage() {
   const preserveScrollRef = useRef(false)
   // Whether the newest message is in view; a new message only forces a scroll when true.
   const atBottomRef = useRef(true)
+  const [partnerTyping, setPartnerTyping] = useState(false)
+  const typingSentRef = useRef(false)
+  const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The other participant's user id for the open conversation (for filtering typing events).
+  const activeUserIdRef = useRef<number | null>(null)
+  // Safety timer that clears the incoming "typing" indicator on its own, so it
+  // can never get stuck if the sender disappears or a "stop-typing" is lost.
+  const partnerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadConversations = async () => {
     const q = convQueryRef.current.trim()
@@ -113,8 +121,61 @@ export function MessagesPage() {
   useEffect(() => {
     // Opening a conversation should always land on the newest message.
     atBottomRef.current = true
+    clearPartnerTyping()
+    typingSentRef.current = false
+    if (typingStopRef.current) {
+      clearTimeout(typingStopRef.current)
+      typingStopRef.current = null
+    }
     loadMessages()
   }, [cid])
+
+  // Tell the other person when I start and stop typing (throttled to one
+  // "typing" event per burst, with an automatic "stop" after a short idle).
+  const notifyTyping = (value: string) => {
+    const partnerId = activeUserIdRef.current
+    if (!cid || !partnerId) return
+    if (value.trim() && !typingSentRef.current) {
+      typingSentRef.current = true
+      sendTyping(partnerId, cid, true)
+    }
+    if (typingStopRef.current) clearTimeout(typingStopRef.current)
+    typingStopRef.current = setTimeout(() => {
+      if (typingSentRef.current) {
+        typingSentRef.current = false
+        sendTyping(partnerId, cid, false)
+      }
+    }, 1800)
+  }
+
+  // Show the "typing" indicator for a short while, refreshing it on every
+  // keystroke event. It always clears itself, so a dropped "stop-typing" (or a
+  // sender who closes the tab mid-sentence) can never leave the dots stuck.
+  const flashPartnerTyping = () => {
+    setPartnerTyping(true)
+    if (partnerTypingTimeoutRef.current) clearTimeout(partnerTypingTimeoutRef.current)
+    partnerTypingTimeoutRef.current = setTimeout(() => {
+      setPartnerTyping(false)
+      partnerTypingTimeoutRef.current = null
+    }, 4000)
+  }
+
+  const clearPartnerTyping = () => {
+    if (partnerTypingTimeoutRef.current) {
+      clearTimeout(partnerTypingTimeoutRef.current)
+      partnerTypingTimeoutRef.current = null
+    }
+    setPartnerTyping(false)
+  }
+
+  // Clear both timers on unmount so nothing fires after leaving the page.
+  useEffect(
+    () => () => {
+      if (typingStopRef.current) clearTimeout(typingStopRef.current)
+      if (partnerTypingTimeoutRef.current) clearTimeout(partnerTypingTimeoutRef.current)
+    },
+    [],
+  )
 
   // Keep the newest message in view, except when older history is being prepended
   // or the reader has deliberately scrolled up into the history.
@@ -129,6 +190,8 @@ export function MessagesPage() {
 
   useSocketEvent('message:new', (incoming: ChatMessage) => {
     if (incoming.conversationId !== cid) return
+    // A real message supersedes the typing indicator immediately.
+    clearPartnerTyping()
     setMessages((list) => (list.some((m) => m.id === incoming.id) ? list : [...list, incoming]))
     void (async () => {
       try {
@@ -142,6 +205,18 @@ export function MessagesPage() {
     loadConversations()
   })
 
+  // The other person started/stopped typing in this conversation.
+  useSocketEvent('typing', (payload: { conversationId?: number; userId?: number }) => {
+    if (payload?.conversationId === cid && payload.userId === activeUserIdRef.current) {
+      flashPartnerTyping()
+    }
+  })
+  useSocketEvent('stop-typing', (payload: { conversationId?: number; userId?: number }) => {
+    if (payload?.conversationId === cid && payload.userId === activeUserIdRef.current) {
+      clearPartnerTyping()
+    }
+  })
+
   // Another tab/device marked a conversation read — refresh its row and the badge.
   useSocketEvent('conversation:read', (payload: { conversationId?: number }) => {
     if (payload?.conversationId === cid) return
@@ -150,6 +225,12 @@ export function MessagesPage() {
 
   const send = async () => {
     if (!cid || (!content.trim())) return
+    // Sending ends the typing burst immediately.
+    if (typingSentRef.current && activeUserIdRef.current) {
+      typingSentRef.current = false
+      if (typingStopRef.current) clearTimeout(typingStopRef.current)
+      sendTyping(activeUserIdRef.current, cid, false)
+    }
     try {
       const data = await api<any>(`/messages/conversations/${cid}/messages`, {
         method: 'POST',
@@ -188,6 +269,13 @@ export function MessagesPage() {
 
   const active = conversations.find((c) => c.id === cid)
   const activeOnline = active ? (isUserOnline(active.user.id) || active.user.online) : false
+  // Prefer the conversation row; fall back to the other sender in the thread so
+  // typing/stop-typing still match when a conversation is opened by direct link.
+  const activeUserId =
+    active?.user.id ??
+    messages.find((m) => m.sender.id !== user?.id)?.sender.id ??
+    null
+  activeUserIdRef.current = activeUserId
 
 
   return (
@@ -333,6 +421,15 @@ export function MessagesPage() {
                     </div>
                   )
                 })}
+                {partnerTyping && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-1 rounded-3xl bg-slate-100 px-4 py-3 dark:bg-slate-800">
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-slate-400" />
+                    </div>
+                  </div>
+                )}
                 <div ref={bottomRef} />
               </div>
             </div>
@@ -342,7 +439,10 @@ export function MessagesPage() {
                   className="flex-1 rounded-2xl border border-slate-200 bg-white/90 px-4 py-2.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900/80"
                   placeholder="Type a message..."
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    notifyTyping(e.target.value)
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && send()}
                 />
                 <input

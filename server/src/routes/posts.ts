@@ -14,6 +14,7 @@ interface PostShape {
   id: number;
   content: string;
   imageUrl: string;
+  videoUrl: string;
   views: number;
   createdAt: string;
   hashtags: string[];
@@ -47,6 +48,7 @@ async function decorate(postRows: Record<string, any>[], viewerId: number | unde
     id: p.id,
     content: p.content,
     imageUrl: p.image_url,
+    videoUrl: p.video_url ?? '',
     views: Number(p.views ?? 0),
     createdAt: p.created_at,
     hashtags: extractHashtags(p.content),
@@ -100,6 +102,7 @@ postsRouter.get(
         'p.id',
         'p.content',
         'p.image_url',
+        'p.video_url',
         'p.views',
         'p.created_at',
         'p.user_id',
@@ -194,16 +197,20 @@ postsRouter.post(
       .object({
         content: z.string().trim().max(2000).optional().default(''),
         imageUrl: z.string().trim().max(500).optional().default(''),
+        videoUrl: z.string().trim().max(500).optional().default(''),
       })
       .parse(req.body);
-    if (!body.content && !body.imageUrl) {
-      throw new HttpError(400, 'Write something or add a photo first.');
+    if (!body.content && !body.imageUrl && !body.videoUrl) {
+      throw new HttpError(400, 'Write something, add a photo, or add a video first.');
     }
+    // A post carries at most one media attachment; a video wins if both slip in.
+    const imageUrl = body.videoUrl ? '' : body.imageUrl;
     const [id] = await db('posts')
       .insert({
         user_id: req.user!.id,
         content: body.content,
-        image_url: body.imageUrl,
+        image_url: imageUrl,
+        video_url: body.videoUrl,
         created_at: isoNow(),
       })
       .returning('id');

@@ -6,7 +6,7 @@ npm-workspaces monorepo.
 
 ## Features
 
-- **Feed** — create posts with photos, like, share, comment and delete your own content.
+- **Feed** — create posts with photos or short videos, like, share, comment and delete your own content.
 - **Stories** — 24-hour photo, video or text stories with gradient backgrounds (they expire automatically).
 - **Messaging** — real-time 1:1 conversations over Socket.IO, with photo messages and a "new message" people picker.
 - **Notifications** — likes, comments, follows, shares and messages; mark one or all as read, or clear them.
@@ -154,7 +154,7 @@ session cookie.
 | ------------- | ----------------------------------------------------------------------------------------- |
 | Auth          | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`; `GET /auth/me` |
 | Users         | `GET /users/me`, `PUT /users/me`, `DELETE /users/me`; `GET /users/:username`, `/followers`, `/following`; `POST /users/:username/follow`, `/block`; `GET /users/suggestions`, `/blocked` |
-| Posts         | `GET /posts`, `POST /posts`, `GET /posts/:id`, `DELETE /posts/:id`; `POST /posts/:id/like`, `/share`, `/view`; `GET`/`POST /posts/:id/comments`, `DELETE /posts/:id/comments/:commentId` |
+| Posts         | `GET /posts`, `POST /posts` (accepts `imageUrl` or `videoUrl`), `GET /posts/:id`, `DELETE /posts/:id`; `POST /posts/:id/like`, `/share`, `/view`; `GET`/`POST /posts/:id/comments`, `DELETE /posts/:id/comments/:commentId` |
 | Stories       | `GET /stories`, `POST /stories`, `GET /stories/:id`, `POST /stories/:id/view`, `DELETE /stories/:id` |
 | Messages      | `GET`/`POST /messages/conversations`; `GET`/`POST /messages/conversations/:id/messages`; `POST /messages/conversations/:id/read` |
 | Notifications | `GET /notifications`, `POST /notifications/read-all`, `POST /notifications/:id/read`, `DELETE /notifications` |

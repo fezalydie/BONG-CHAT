@@ -4,6 +4,7 @@ export interface Post {
   id: number
   content: string
   imageUrl: string
+  videoUrl: string
   views: number
   createdAt: string
   hashtags: string[]

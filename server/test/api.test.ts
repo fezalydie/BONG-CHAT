@@ -23,6 +23,8 @@ delete process.env.AI_API_KEY;
 
 const { runMigrations, db } = await import('../src/db.js');
 const { createApp } = await import('../src/app.js');
+const { createSocketServer } = await import('../src/sockets/index.js');
+const { io: ioClient } = await import('socket.io-client');
 
 let server: Server;
 let base = '';
@@ -75,6 +77,7 @@ before(async () => {
   await runMigrations();
   const app = createApp();
   server = app.listen(0);
+  createSocketServer(server);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
@@ -189,6 +192,42 @@ test('post authors expose the real user id, not the post id', async () => {
   const mine = feed.json.items.find((item: any) => item.post?.id === created.json.post.id);
   assert.ok(mine, 'the post appears in the feed');
   assert.equal(mine.post.author.id, aliceId);
+});
+
+test('a post can carry a video instead of a photo', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'Video post', videoUrl: '/uploads/demo.mp4' },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.post.videoUrl, '/uploads/demo.mp4');
+  assert.equal(created.json.post.imageUrl, '', 'a video post has no photo');
+
+  const single = await call('GET', `/api/posts/${created.json.post.id}`, { cookie: alice });
+  assert.equal(single.json.post.videoUrl, '/uploads/demo.mp4');
+
+  const feed = await call('GET', '/api/posts', { cookie: alice });
+  const mine = feed.json.items.find((item: any) => item.post?.id === created.json.post.id);
+  assert.ok(mine, 'the video post appears in the feed');
+  assert.equal(mine.post.videoUrl, '/uploads/demo.mp4');
+});
+
+test('a post requires content, a photo or a video', async () => {
+  const res = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: '', imageUrl: '', videoUrl: '' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('a post with both a photo and a video keeps only the video', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'Both', imageUrl: '/uploads/pic.jpg', videoUrl: '/uploads/clip.mp4' },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.post.videoUrl, '/uploads/clip.mp4');
+  assert.equal(created.json.post.imageUrl, '', 'the photo is dropped when a video is present');
 });
 
 test('comments can be created and deleted', async () => {
@@ -554,6 +593,58 @@ test('conversation list and read receipts', async () => {
     listAgain.json.conversations.find((c: any) => c.id === conversationId).unreadCount,
     0,
   );
+});
+
+test('typing indicators relay to the other participant and retract on disconnect', async () => {
+  // Reuse (or create) the alice → bob conversation.
+  const started = await call('POST', '/api/messages/conversations', {
+    cookie: alice,
+    body: { username: 'bob' },
+  });
+  const conversationId = started.json.conversationId;
+  const bobRes = await call('GET', '/api/auth/me', { cookie: bob });
+  const bobId = bobRes.json.user.id;
+
+  const connect = (cookie: string) =>
+    new Promise<any>((resolve, reject) => {
+      const socket = ioClient(base, {
+        withCredentials: true,
+        extraHeaders: { cookie },
+        transports: ['websocket'],
+      });
+      socket.on('connect', () => resolve(socket));
+      socket.on('connect_error', reject);
+    });
+
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const socketA = await connect(alice);
+  const socketB = await connect(bob);
+  const seen: Array<[string, any]> = [];
+  socketB.on('typing', (p: any) => seen.push(['typing', p]));
+  socketB.on('stop-typing', (p: any) => seen.push(['stop-typing', p]));
+  await wait(150);
+
+  socketA.emit('typing', { to: bobId, conversationId });
+  await wait(200);
+  socketA.emit('stop-typing', { to: bobId, conversationId });
+  await wait(200);
+  // Now type again and vanish mid-sentence — bob must still see the dots clear.
+  socketA.emit('typing', { to: bobId, conversationId });
+  await wait(100);
+  socketA.disconnect();
+  await wait(300);
+
+  socketB.disconnect();
+
+  const typing = seen.filter(([event]) => event === 'typing');
+  const disconnectStops = seen.filter(([event, p]) => event === 'stop-typing' && p.userId === aliceId);
+  assert.equal(typing.length, 2, 'two typing events reach bob');
+  assert.ok(
+    typing.every(([, p]) => p.conversationId === conversationId && p.userId === aliceId),
+    'typing payload identifies the conversation and sender',
+  );
+  assert.ok(disconnectStops.length >= 2, 'a disconnect retracts the pending typing indicator');
 });
 
 test('image uploads require auth and accept a PNG', async () => {

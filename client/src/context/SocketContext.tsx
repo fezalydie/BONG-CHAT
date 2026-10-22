@@ -23,6 +23,7 @@ interface SocketContextValue {
   unreadMessages: number;
   refreshUnreadMessages: () => Promise<void>;
   subscribe: (event: string, handler: SocketHandler) => () => void;
+  sendTyping: (to: number, conversationId: number, typing: boolean) => void;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -89,7 +90,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     const forward = (event: string) => (payload: unknown) => {
       handlers.current.get(event)?.forEach((handler) => handler(payload));
     };
-    const events = ['message:new', 'notification:new', 'conversation:updated', 'conversation:read', 'chat:image'];
+    const events = [
+      'message:new',
+      'notification:new',
+      'conversation:updated',
+      'conversation:read',
+      'chat:image',
+      'typing',
+      'stop-typing',
+    ];
     const listeners: Array<[string, SocketHandler]> = events.map((event) => [event, forward(event)]);
     listeners.forEach(([event, listener]) => instance.on(event, listener));
 
@@ -111,6 +120,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   const isUserOnline = useCallback((userId: number) => onlineUsers.has(userId), [onlineUsers]);
 
+  const sendTyping = useCallback(
+    (to: number, conversationId: number, typing: boolean) => {
+      if (!socket) return;
+      socket.emit(typing ? 'typing' : 'stop-typing', { to, conversationId });
+    },
+    [socket],
+  );
+
   const value = useMemo<SocketContextValue>(
     () => ({
       socket,
@@ -120,8 +137,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       unreadMessages,
       refreshUnreadMessages,
       subscribe,
+      sendTyping,
     }),
-    [socket, connected, onlineUsers, isUserOnline, unreadMessages, refreshUnreadMessages, subscribe],
+    [socket, connected, onlineUsers, isUserOnline, unreadMessages, refreshUnreadMessages, subscribe, sendTyping],
   );
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;

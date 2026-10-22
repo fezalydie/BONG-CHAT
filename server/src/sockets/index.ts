@@ -64,7 +64,33 @@ export function createSocketServer(httpServer: HttpServer): Server {
       if (typeof targetId === 'number') socket.join(`user:${targetId}`);
     });
 
+    // Typing indicators: relay to just the other person. These are ephemeral
+    // and never persisted, so a dropped event only means the dots disappear.
+    // We remember the recipients this socket is typing to so we can retract the
+    // indicator if the socket goes away mid-sentence.
+    const typingTo = new Map<number, number | undefined>();
+
+    socket.on('typing', (payload: { to?: number; conversationId?: number }) => {
+      const to = Number(payload?.to);
+      if (!Number.isFinite(to) || to === userId) return;
+      typingTo.set(to, payload?.conversationId);
+      emitToUser(to, 'typing', { conversationId: payload?.conversationId, userId });
+    });
+
+    socket.on('stop-typing', (payload: { to?: number; conversationId?: number }) => {
+      const to = Number(payload?.to);
+      if (!Number.isFinite(to) || to === userId) return;
+      typingTo.delete(to);
+      emitToUser(to, 'stop-typing', { conversationId: payload?.conversationId, userId });
+    });
+
     socket.on('disconnect', () => {
+      // Retract any typing indicator this socket left hanging.
+      for (const [to, conversationId] of typingTo) {
+        emitToUser(to, 'stop-typing', { conversationId, userId });
+      }
+      typingTo.clear();
+
       const current = online.get(userId);
       if (!current) return;
       current.delete(socket.id);
