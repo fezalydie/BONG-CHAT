@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Post, Comment } from '@/types/post'
 import { PostCard } from '@/components/posts/PostCard'
-import { Send, Trash2 } from 'lucide-react'
+import { Send, Trash2, Loader2 } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
@@ -14,21 +14,35 @@ dayjs.extend(relativeTime)
 export function PostPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [content, setContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const toast = useToast()
 
   const load = async () => {
     if (!id) return
-    const p = await api<any>(`/posts/${id}`)
-    setPost(p.post)
-    const c = await api<any>(`/posts/${id}/comments`)
-    setComments(c.comments)
+    setLoading(true)
+    try {
+      const p = await api<any>(`/posts/${id}`)
+      setPost(p.post)
+      setError(null)
+      const c = await api<any>(`/posts/${id}/comments`)
+      setComments(c.comments)
+    } catch (err: any) {
+      // A deleted or private post used to leave the page permanently blank.
+      setPost(null)
+      setError(err?.message || 'Could not load this post.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    load()
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const addComment = async () => {
@@ -36,6 +50,8 @@ export function PostPage() {
     try {
       const data = await api<any>(`/posts/${id}/comments`, { method: 'POST', body: JSON.stringify({ content }) })
       setComments((prev) => [...prev, data.comment])
+      // Keep the counter on the card in sync with the thread below it.
+      setPost((p) => (p ? { ...p, comments: p.comments + 1 } : p))
       setContent('')
     } catch (err: any) {
       toast.push({ title: 'Failed', description: err.message, type: 'error' })
@@ -53,11 +69,36 @@ export function PostPage() {
     }
   }
 
-  if (!post) return null
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    )
+  }
+
+  if (error || !post) {
+    return (
+      <div className="surface flex flex-col items-center gap-3 p-8 text-center">
+        <p className="text-sm text-slate-500 dark:text-slate-400">{error || 'This post is no longer available.'}</p>
+        <div className="flex gap-2">
+          <button className="btn-ghost" onClick={() => void load()}>
+            Try again
+          </button>
+          <Link className="btn-ghost" to="/">
+            Back to feed
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <PostCard item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }} />
+      <PostCard
+        item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
+        onDeleted={() => navigate('/', { replace: true })}
+      />
       <div className="surface p-4 md:p-6">
         <div className="flex flex-col gap-3">
           {comments.map((c) => {

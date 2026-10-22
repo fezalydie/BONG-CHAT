@@ -10,7 +10,7 @@ import { useToast } from '@/components/common/Toast'
 
 dayjs.extend(relativeTime)
 
-export function PostCard({ item }: { item: FeedItem }) {
+export function PostCard({ item, onDeleted }: { item: FeedItem; onDeleted?: (postId: number) => void }) {
   const post = item.post
   const { user } = useAuth()
   const toast = useToast()
@@ -19,16 +19,23 @@ export function PostCard({ item }: { item: FeedItem }) {
   const [likes, setLikes] = useState(post.likes)
   const [shared, setShared] = useState(post.sharedByMe)
   const [shares, setShares] = useState(post.shares)
+  const [views, setViews] = useState(post.views)
   const [menuOpen, setMenuOpen] = useState(false)
 
   const like = async () => {
-    setLiked((v) => !v)
-    setLikes((v) => (liked ? Math.max(0, v - 1) : v + 1))
+    // Optimistic flip, rolled back if the request fails so the heart and the
+    // count never drift away from what the server actually stored.
+    const wasLiked = liked
+    const wasLikes = likes
+    setLiked(!wasLiked)
+    setLikes(wasLiked ? Math.max(0, wasLikes - 1) : wasLikes + 1)
     try {
       const data = await api<any>(`/posts/${post.id}/like`, { method: 'POST' })
       setLikes(data.likes)
       setLiked(data.likedByMe)
     } catch {
+      setLiked(wasLiked)
+      setLikes(wasLikes)
       toast.push({ title: 'Could not like post', type: 'error' })
     }
   }
@@ -49,15 +56,19 @@ export function PostCard({ item }: { item: FeedItem }) {
     try {
       await api<any>(`/posts/${post.id}`, { method: 'DELETE' })
       toast.push({ title: 'Post deleted', type: 'success' })
-      window.location.reload()
+      // Let the page drop the card instead of reloading the whole document.
+      if (onDeleted) onDeleted(post.id)
+      else window.location.reload()
     } catch {
       toast.push({ title: 'Could not delete post', type: 'error' })
     }
   }
 
+  // The server records at most one view per viewer and returns the fresh count.
   const view = async () => {
     try {
-      await api<any>(`/posts/${post.id}/view`, { method: 'POST' })
+      const data = await api<{ views: number }>(`/posts/${post.id}/view`, { method: 'POST' })
+      setViews(data.views)
     } catch {
       // ignore
     }
@@ -155,7 +166,7 @@ export function PostCard({ item }: { item: FeedItem }) {
         </button>
         <div className="flex items-center gap-1.5">
           <Eye className="h-4 w-4" />
-          {post.views}
+          {views}
         </div>
       </div>
     </div>

@@ -22,32 +22,63 @@ export function ProfilePage() {
   const [listUsers, setListUsers] = useState<PublicUser[]>([])
   const [listLoading, setListLoading] = useState(false)
   const [messaging, setMessaging] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const isMe = !username || username === user?.username
+
+  const loadPosts = async (uname: string) => {
+    try {
+      const p = await api<any>(`/posts?username=${uname}`)
+      setPosts(p.items.filter((i: any) => i.kind === 'post').map((i: any) => i.post))
+    } catch {
+      // Private accounts hide their posts from non-followers; the lock panel explains why.
+      setPosts([])
+    }
+  }
 
   const load = async () => {
     const uname = username || user?.username
     if (!uname) return
-    const data = await api<any>(`/users/${uname}`)
-    setProfile(data.user)
-    setStats(data.stats)
-    setViewer(data.viewer)
-    const p = await api<any>(`/posts?username=${uname}`)
-    setPosts(p.items.filter((i: any) => i.kind === 'post').map((i: any) => i.post))
+    setLoading(true)
+    try {
+      const data = await api<any>(`/users/${uname}`)
+      setProfile(data.user)
+      setStats(data.stats)
+      setViewer(data.viewer)
+      setError(null)
+      await loadPosts(uname)
+    } catch (err: any) {
+      setProfile(null)
+      setError(err?.message || 'Could not load this profile.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    load()
-  }, [username, user])
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username, user?.id])
 
   const follow = async () => {
     if (!profile) return
     try {
       const data = await api<any>(`/users/${profile.username}/follow`, { method: 'POST' })
-      setViewer((v) => (v ? { ...v, isFollowing: data.following } : v))
+      const canViewNow = !profile.isPrivate || data.following
+      setViewer((v) => (v ? { ...v, isFollowing: data.following, canViewContent: canViewNow } : v))
       setStats((s) => ({ ...s, followers: data.followers }))
+      // Following a private account unlocks its timeline immediately.
+      if (canViewNow) await loadPosts(profile.username)
+      else setPosts([])
     } catch (err: any) {
       toast.push({ title: 'Error', description: err.message, type: 'error' })
     }
+  }
+
+  // Drop a deleted post and keep the profile's post count honest.
+  const removePost = (postId: number) => {
+    setPosts((list) => list.filter((p) => p.id !== postId))
+    setStats((s) => ({ ...s, posts: Math.max(0, s.posts - 1) }))
   }
 
   // Open (or reuse) the direct conversation with this person and jump into it.
@@ -98,7 +129,24 @@ export function ProfilePage() {
     }
   }
 
-  if (!profile) return null
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="surface flex flex-col items-center gap-3 p-8 text-center">
+        <p className="text-sm text-slate-500 dark:text-slate-400">{error || 'This profile is not available.'}</p>
+        <button className="btn-ghost" onClick={() => void load()}>
+          Try again
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -164,12 +212,14 @@ export function ProfilePage() {
             <div className="text-sm text-slate-500 dark:text-slate-400">Follow to see their posts and stories</div>
           </div>
         )}
-        {viewer && viewer.canViewContent && posts.map((post) => (
-          <PostCard key={post.id} item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }} />
-        ))}
-        {viewer && viewer.isMe && posts.map((post) => (
-          <PostCard key={post.id} item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }} />
-        ))}
+        {viewer && viewer.canViewContent &&
+          posts.map((post) => (
+            <PostCard
+              key={post.id}
+              item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
+              onDeleted={removePost}
+            />
+          ))}
       </div>
 
       <Modal open={listKind !== null} onClose={() => setListKind(null)} title={listKind === 'followers' ? 'Followers' : 'Following'}>

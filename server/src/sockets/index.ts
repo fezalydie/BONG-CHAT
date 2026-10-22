@@ -60,10 +60,6 @@ export function createSocketServer(httpServer: HttpServer): Server {
       server.emit('presence:update', { userId, online: true });
     }
 
-    socket.on('watch:user', (targetId: number) => {
-      if (typeof targetId === 'number') socket.join(`user:${targetId}`);
-    });
-
     // Typing indicators: relay to just the other person. These are ephemeral
     // and never persisted, so a dropped event only means the dots disappear.
     // We remember the recipients this socket is typing to so we can retract the

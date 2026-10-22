@@ -13,6 +13,11 @@
     "start": "npm run start -w server",
     "migrate": "npm run migrate -w server",
     "seed": "npm run seed -w server",
+    "migrate:prod": "npm run migrate:prod -w server",
+    "seed:prod": "npm run seed:prod -w server",
+    "docker:build": "docker build -t bong-chat .",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
     "test": "npm run test -w server"
   },
   "devDependencies": {

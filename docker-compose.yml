@@ -1,0 +1,53 @@
+# A production-shaped stack: the app image plus PostgreSQL.
+#
+#   cp server/.env.example server/.env    # then set a real JWT_SECRET
+#   docker compose up --build
+#   open http://localhost:4000
+#
+# SQLite also works — just delete the `db` service and the DB_* variables below
+# and let the app fall back to its default database file in a mounted volume.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bong
+      POSTGRES_PASSWORD: bong
+      POSTGRES_DB: bongchat
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bong -d bongchat']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: production
+      PORT: '4000'
+      # Reachable from the host too; set this to your real public URL behind TLS.
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:4000}
+      # CHANGE THIS before exposing the stack. Compose reads it from your shell
+      # or a root .env file; the fallback is only for a quick local try-out.
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      DB_CLIENT: pg
+      DATABASE_URL: postgres://bong:bong@db:5432/bongchat
+      STORY_TTL_HOURS: '24'
+      MAX_UPLOAD_MB: '8'
+      MAX_VIDEO_MB: '50'
+    volumes:
+      # Uploads live on a volume so they survive image rebuilds.
+      - uploads:/app/server/uploads
+
+volumes:
+  db-data:
+  uploads:

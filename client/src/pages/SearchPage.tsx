@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { SearchResult } from '@/types/other'
-import { Search as SearchIcon, Eye } from 'lucide-react'
+import { Search as SearchIcon, Eye, Play } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
@@ -116,6 +116,20 @@ export function SearchPage() {
                 </div>
                 {post.imageUrl && (
                   <img src={post.imageUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                )}
+                {post.videoUrl && (
+                  <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-black">
+                    <video
+                      src={post.videoUrl}
+                      className="h-full w-full object-cover"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <Play className="h-4 w-4 fill-white text-white" />
+                    </div>
+                  </div>
                 )}
               </Link>
             ))}

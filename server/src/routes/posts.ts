@@ -130,7 +130,7 @@ postsRouter.get(
     // Reposts from the same author set (skip when browsing one profile or one tag).
     let shareRows: Record<string, any>[] = [];
     if (!username && !hashtag) {
-      shareRows = await db('shares as s')
+      const rawShareRows = await db('shares as s')
         .join('posts as p', 'p.id', 's.post_id')
         .join('users as author', 'author.id', 'p.user_id')
         .join('users as sharer', 'sharer.id', 's.user_id')
@@ -155,6 +155,18 @@ postsRouter.get(
         .orderBy('s.created_at', 'desc')
         .limit(PAGE_SIZE * 2)
         .offset(page * PAGE_SIZE);
+
+      // A repost must never reveal a post the viewer is not allowed to see — the
+      // share author being followed says nothing about the *post* author (who may
+      // be private or blocked). Cache the check per author for this page.
+      const canSeeAuthor = new Map<number, boolean>();
+      for (const row of rawShareRows) {
+        const authorId = Number(row.user_id);
+        if (!canSeeAuthor.has(authorId)) {
+          canSeeAuthor.set(authorId, await canViewContent(viewerId, authorId));
+        }
+      }
+      shareRows = rawShareRows.filter((row) => canSeeAuthor.get(Number(row.user_id)));
     }
 
     const normalizedPosts = postRows.map((p) => ({ ...p, user_id: p.user_id }));

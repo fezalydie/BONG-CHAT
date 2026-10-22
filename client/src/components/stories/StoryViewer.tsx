@@ -54,6 +54,8 @@ export function StoryViewer() {
   useEffect(() => {
     if (!open || !group || !group.stories[activeStory]) return
     markViewed(group.stories[activeStory].id)
+    // Reset the viewer list when moving to a different story.
+    setViewers([])
   }, [open, group, activeStory])
 
   const markViewed = async (storyId: number) => {
@@ -106,10 +108,12 @@ export function StoryViewer() {
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-2 text-xs">
-            <Eye className="h-3 w-3" />
-            {viewers.length} viewers
-          </div>
+          {user && group && group.user.id === user.id && (
+            <div className="flex items-center gap-2 text-xs">
+              <Eye className="h-3 w-3" />
+              {viewers.length} viewers
+            </div>
+          )}
           <button
             disabled={activeStory === group.stories.length - 1}
             onClick={() => setActiveStory((s) => Math.min(group.stories.length - 1, s + 1))}

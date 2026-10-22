@@ -30,6 +30,9 @@ export function MessagesPage() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [threadError, setThreadError] = useState<string | null>(null)
+  const [threadLoading, setThreadLoading] = useState(false)
+  // Incremented on every thread load so stale responses can be discarded.
+  const threadRequestRef = useRef(0)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -62,15 +65,23 @@ export function MessagesPage() {
 
   const loadMessages = async () => {
     if (!cid) return
+    // Ignore a slow response that arrives after the user opened another thread.
+    const request = ++threadRequestRef.current
+    setThreadLoading(true)
     try {
       const data = await api<any>(`/messages/conversations/${cid}/messages`)
+      if (request !== threadRequestRef.current) return
       setMessages(data.messages)
       setHasMore(Boolean(data.hasMore))
       await api<any>(`/messages/conversations/${cid}/read`, { method: 'POST' })
       setThreadError(null)
       void refreshUnreadMessages()
     } catch (err: any) {
-      setThreadError(err?.message || 'Could not load this conversation.')
+      if (request === threadRequestRef.current) {
+        setThreadError(err?.message || 'Could not load this conversation.')
+      }
+    } finally {
+      if (request === threadRequestRef.current) setThreadLoading(false)
     }
   }
 
@@ -127,6 +138,11 @@ export function MessagesPage() {
       clearTimeout(typingStopRef.current)
       typingStopRef.current = null
     }
+    // Never leave the previous conversation's thread on screen under the new
+    // header while the next page loads.
+    setMessages([])
+    setHasMore(false)
+    setThreadError(null)
     loadMessages()
   }, [cid])
 
@@ -275,7 +291,10 @@ export function MessagesPage() {
     active?.user.id ??
     messages.find((m) => m.sender.id !== user?.id)?.sender.id ??
     null
-  activeUserIdRef.current = activeUserId
+  // Keep the ref in sync after render; the typing handlers read it at event time.
+  useEffect(() => {
+    activeUserIdRef.current = activeUserId
+  }, [activeUserId])
 
 
   return (
@@ -338,7 +357,7 @@ export function MessagesPage() {
                   {c.unreadCount > 0 && <span className="h-2 w-2 rounded-full bg-brand-600" />}
                 </div>
                 <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-                  {c.lastMessage?.content || 'No messages yet'}
+                  {c.lastMessage?.content || (c.lastMessage?.imageUrl ? '📷 Photo' : 'No messages yet')}
                 </div>
               </div>
             </Link>
@@ -349,30 +368,48 @@ export function MessagesPage() {
       <div className={`${cid ? 'flex' : 'hidden md:flex'} flex-1 flex-col`}>
         {cid ? (
           <>
-            <div className="flex items-center gap-3 border-b border-slate-200/70 p-4 dark:border-slate-800/70">
-              <button
-                className="btn-ghost h-9 w-9 rounded-full p-0 md:hidden"
-                title="Back to conversations"
-                onClick={() => navigate('/messages')}
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              {active && (
-                <>
+            {active && active.user.id !== user?.id && (
+              <div className="flex items-center gap-3 border-b border-slate-200/70 p-4 dark:border-slate-800/70">
+                <button
+                  className="btn-ghost h-9 w-9 rounded-full p-0 md:hidden"
+                  title="Back to conversations"
+                  onClick={() => navigate('/messages')}
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <Link to={`/profile/${active.user.username}`}>
                   <img
                     src={active.user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${active.user.username}`}
                     alt={active.user.displayName}
                     className="h-9 w-9 rounded-full object-cover"
                   />
-                  <div>
-                    <div className="text-sm font-semibold">{active.user.displayName}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {activeOnline ? 'Online' : 'Offline'}
-                    </div>
+                </Link>
+                <Link to={`/profile/${active.user.username}`} className="min-w-0">
+                  <div className="text-sm font-semibold">{active.user.displayName}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {activeOnline ? 'Online' : 'Offline'}
                   </div>
-                </>
-              )}
-            </div>
+                </Link>
+              </div>
+            )}
+            {cid && !active && (
+              <div className="flex items-center gap-3 border-b border-slate-200/70 p-4 dark:border-slate-800/70">
+                <button
+                  className="btn-ghost h-9 w-9 rounded-full p-0 md:hidden"
+                  title="Back to conversations"
+                  onClick={() => navigate('/messages')}
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <div className="h-9 w-9 rounded-full bg-slate-200 dark:bg-slate-700" />
+                <div>
+                  <div className="text-sm font-semibold">Conversation</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {activeOnline ? 'Online' : 'Offline'}
+                  </div>
+                </div>
+              </div>
+            )}
             <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-4">
               <div className="mx-auto flex max-w-2xl flex-col gap-2">
                 {threadError && (
@@ -398,7 +435,12 @@ export function MessagesPage() {
                     </button>
                   </div>
                 )}
-                {messages.length === 0 && !threadError && (
+                {threadLoading && (
+                  <div className="flex justify-center py-10">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  </div>
+                )}
+                {messages.length === 0 && !threadError && !threadLoading && (
                   <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
                     No messages yet — say hello 👋
                   </div>

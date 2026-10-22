@@ -34,6 +34,7 @@ export interface SearchResult {
     id: number
     content: string
     imageUrl: string
+    videoUrl: string
     views: number
     createdAt: string
     author: PublicUser

@@ -1,0 +1,42 @@
+# BONG CHAT — systemd unit for a bare-metal / VM deployment (no Docker).
+#
+# 1. Copy the repo to /opt/bong-chat and build it:
+#      cd /opt/bong-chat && npm ci && npm run build
+# 2. Create a dedicated user and give it the data + uploads folders:
+#      useradd --system --home /opt/bong-chat bongchat
+#      mkdir -p /opt/bong-chat/server/data /opt/bong-chat/server/uploads
+#      chown -R bongchat:bongchat /opt/bong-chat/server/data /opt/bong-chat/server/uploads
+# 3. Put your secrets in /opt/bong-chat/server/.env (chmod 600, owned by bongchat).
+# 4. Install this unit:
+#      cp deploy/bong-chat.service /etc/systemd/system/
+#      systemctl daemon-reload && systemctl enable --now bong-chat
+#
+# The EnvironmentFile is optional; every variable has a default. At minimum set
+# NODE_ENV=production and a strong JWT_SECRET there.
+
+[Unit]
+Description=BONG CHAT server (API + Socket.IO + web client)
+After=network.target
+# Uncomment if you run PostgreSQL on the same host.
+# After=postgresql.service
+
+[Service]
+Type=simple
+User=bongchat
+Group=bongchat
+WorkingDirectory=/opt/bong-chat
+Environment=NODE_ENV=production
+Environment=PORT=4000
+EnvironmentFile=-/opt/bong-chat/server/.env
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=3
+
+# Light hardening — the service only needs to write its data and uploads.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/bong-chat/server/data /opt/bong-chat/server/uploads
+
+[Install]
+WantedBy=multi-user.target

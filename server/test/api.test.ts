@@ -441,6 +441,21 @@ test('search supports a type filter', async () => {
   assert.equal(res.json.posts.length, 0);
 });
 
+test('search exposes video posts with their videoUrl', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'searchable clip zzvideo', videoUrl: '/uploads/search-clip.mp4' },
+  });
+  assert.equal(created.status, 201);
+
+  const res = await call('GET', '/api/search?q=zzvideo', { cookie: alice });
+  assert.equal(res.status, 200);
+  const hit = res.json.posts.find((p: any) => p.id === created.json.post.id);
+  assert.ok(hit, 'the video post is found by search');
+  assert.equal(hit.videoUrl, '/uploads/search-clip.mp4');
+  assert.equal(hit.imageUrl, '');
+});
+
 test('integrations are public', async () => {
   const res = await call('GET', '/api/integrations');
   assert.equal(res.status, 200);
@@ -709,6 +724,55 @@ test('private accounts hide content from non-followers', async () => {
     body: { isPrivate: original.isPrivate },
   });
   assert.equal(restored.json.settings.isPrivate, original.isPrivate);
+});
+
+test('reposts never expose posts from accounts the viewer cannot see', async () => {
+  const daveRes = await register('dave');
+  assert.equal(daveRes.status, 201);
+  const dave = daveRes.cookie!;
+
+  // Dave goes private.
+  await call('PUT', '/api/settings', { cookie: dave, body: { isPrivate: true } });
+
+  const created = await call('POST', '/api/posts', {
+    cookie: dave,
+    body: { content: 'private thoughts' },
+  });
+  assert.equal(created.status, 201);
+  const postId = created.json.post.id;
+
+  // Bob follows Dave, so he can see (and repost) the private post.
+  await call('POST', '/api/users/dave/follow', { cookie: bob });
+  const shared = await call('POST', `/api/posts/${postId}/share`, {
+    cookie: bob,
+    body: { note: '' },
+  });
+  assert.equal(shared.status, 200);
+  assert.equal(shared.json.sharedByMe, true);
+
+  // Carol follows Bob but not Dave — the repost must not leak Dave's post.
+  await call('POST', '/api/users/bob/follow', { cookie: carol });
+  const carolFeed = await call('GET', '/api/posts', { cookie: carol });
+  assert.equal(carolFeed.status, 200);
+  assert.ok(
+    !carolFeed.json.items.some((item: any) => item.post?.id === postId),
+    'a private post must not appear through a repost',
+  );
+
+  // Bob does see it, because he follows Dave.
+  const bobFeed = await call('GET', '/api/posts', { cookie: bob });
+  assert.ok(
+    bobFeed.json.items.some((item: any) => item.kind === 'share' && item.post.id === postId),
+    'the follower who reposted it still sees it',
+  );
+
+  // Once Dave is public the repost reaches Carol too.
+  await call('PUT', '/api/settings', { cookie: dave, body: { isPrivate: false } });
+  const publicFeed = await call('GET', '/api/posts', { cookie: carol });
+  assert.ok(
+    publicFeed.json.items.some((item: any) => item.kind === 'share' && item.post.id === postId),
+    'a public repost is visible to everyone who follows the sharer',
+  );
 });
 
 test('the password reset flow issues a usable, single-use token', async () => {

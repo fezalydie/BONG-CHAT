@@ -48,6 +48,9 @@ bong-chat/
 │   │   └── db.ts           # Knex instance + migration runner
 │   ├── test/               # end-to-end API tests (node:test)
 │   └── data/               # SQLite database file (created on first run)
+├── deploy/                 # systemd unit + nginx reverse-proxy config
+├── Dockerfile              # multi-stage production image
+├── docker-compose.yml      # app + PostgreSQL stack
 └── package.json            # workspace root + shared scripts
 ```
 
@@ -102,6 +105,8 @@ Run from the repository root:
 | `npm start`     | Run the compiled server (`server/dist/index.js`)   |
 | `npm run migrate` | Apply database migrations                        |
 | `npm run seed`  | Insert demo data (no-op if already seeded)         |
+| `npm run migrate:prod` / `seed:prod` | Same, against the compiled server (used in Docker) |
+| `npm run docker:up` / `docker:build` / `docker:down` | Docker Compose helpers      |
 | `npm test`      | Run the server API test suite                      |
 
 Workspace-specific scripts are also available with `-w server` / `-w client`,
@@ -119,6 +124,66 @@ updates, stories, messaging (send, read receipts, conversation list), image
 uploads, notifications (per-item and bulk read), search, the assistant and
 account deletion.
 
+
+## Deployment
+
+In production one Node process serves everything — the API, Socket.IO, uploaded
+files and the built React client — on a single port. Build once, then run the
+compiled server:
+
+```bash
+npm ci
+npm run build          # compiles server/ -> server/dist and client/ -> client/dist
+NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) npm start
+```
+
+`NODE_ENV=production` makes the server serve `client/dist` (including SPA deep
+links), serve uploads with a 7-day cache header, and is what you want on any
+host. Migrations run automatically on boot; `npm run seed:prod` adds the demo
+accounts if you want them.
+
+Two ready-to-use paths are included:
+
+### Docker Compose (app + PostgreSQL)
+
+```bash
+cp .env.example .env            # set WEB_ORIGIN and a real JWT_SECRET
+docker compose up --build       # app on http://localhost:4000
+```
+
+- `Dockerfile` — multi-stage build: install → build both workspaces → pruned
+  runtime image (`node:20-bookworm-slim`), with a `HEALTHCHECK` on `/api/health`.
+- `docker-compose.yml` — runs the app against PostgreSQL 16 and keeps uploads on
+  a named volume. Drop the `db` service and the `DB_CLIENT`/`DATABASE_URL`
+  variables to fall back to SQLite on a volume instead.
+
+| Command | What it does |
+| ------- | ------------ |
+| `npm run docker:up`   | `docker compose up --build` |
+| `npm run docker:build` | Build the app image (`bong-chat`) |
+| `npm run docker:down` | Stop and remove the stack |
+
+### Bare VM / bare metal (systemd + nginx)
+
+- `deploy/bong-chat.service` — systemd unit that runs `node server/dist/index.js`
+  as an unprivileged user, with only `server/data` and `server/uploads` writable.
+- `deploy/nginx.conf` — nginx TLS reverse proxy. It forwards `/socket.io/` with
+  the WebSocket upgrade headers (required for real-time messaging) and raises
+  `client_max_body_size` for video uploads.
+
+### Production checklist
+
+- **`JWT_SECRET`** — set a long random value; anyone with it can forge sessions.
+- **`WEB_ORIGIN`** — set it to your public `https://` URL so CORS and links match.
+- **Database** — SQLite is fine for a single instance; use PostgreSQL
+  (`DB_CLIENT=pg` + `DATABASE_URL`) when running multiple instances or wanting
+  managed backups.
+- **Uploads** — mount `server/uploads` on persistent storage, or point
+  `UPLOAD_DIR` at a shared disk; uploads are not replicated between instances.
+- **Upload limits** — `MAX_UPLOAD_MB` (images) and `MAX_VIDEO_MB` (video) should
+  be no larger than your reverse proxy's `client_max_body_size`.
+- **Reverse proxy** — terminate TLS in front of the app and forward the
+  `Upgrade`/`Connection` headers for Socket.IO.
 
 ## Environment variables
 
@@ -138,7 +203,7 @@ variables have sensible defaults for local development.
 | `DATABASE_URL`       | —                        | PostgreSQL connection string (when `DB_CLIENT=pg`)     |
 | `UPLOAD_DIR`         | `./uploads`              | Where uploaded images are stored                       |
 | `MAX_UPLOAD_MB`      | `8`                      | Maximum image upload size in megabytes                 |
-| `MAX_VIDEO_MB`       | `50`                     | Maximum story-video upload size in megabytes           |
+| `MAX_VIDEO_MB`       | `50`                     | Maximum video upload size in megabytes (stories and posts) |
 | `STORY_TTL_HOURS`    | `24`                     | How long a story lasts before expiring                 |
 | `AI_PROVIDER`        | —                        | AI provider id; when unset, the built-in assistant is used |
 | `AI_API_KEY`         | —                        | API key for the AI provider                            |
