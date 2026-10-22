@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/common/Toast'
+import { LinkifiedText } from '@/components/common/LinkifiedText'
 
 dayjs.extend(relativeTime)
 
@@ -120,7 +121,11 @@ export function PostCard({ item, onDeleted }: { item: FeedItem; onDeleted?: (pos
         </div>
       </div>
       <div className="mt-4 space-y-3">
-        {post.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>}
+        {post.content && (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+            <LinkifiedText text={post.content} linkClassName="break-all font-medium text-brand-600 underline decoration-1 underline-offset-2 hover:opacity-80 dark:text-brand-400" />
+          </p>
+        )}
         {post.imageUrl && (
           <div className="overflow-hidden rounded-3xl">
             <img src={post.imageUrl} alt="post" className="h-full w-full object-cover" />

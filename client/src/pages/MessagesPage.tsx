@@ -8,6 +8,7 @@ import { Send, Search, ChevronLeft, Image as ImageIcon, Plus, Loader2 } from 'lu
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
+import { LinkifiedText } from '@/components/common/LinkifiedText'
 import { NewConversationModal } from '@/components/messages/NewConversationModal'
 
 dayjs.extend(relativeTime)
@@ -457,7 +458,13 @@ export function MessagesPage() {
                             className="mb-2 rounded-2xl"
                           />
                         )}
-                        <div className="whitespace-pre-wrap">{m.content}</div>
+                        <div className="whitespace-pre-wrap break-words">
+                          <LinkifiedText
+                            text={m.content}
+                            parts={m.parts}
+                            linkClassName={`break-all underline decoration-1 underline-offset-2 ${mine ? 'text-white' : 'text-brand-600 dark:text-brand-400'}`}
+                          />
+                        </div>
                         <div className={`mt-1 text-[10px] ${mine ? 'text-white/70' : 'text-slate-500'}`}>{dayjs(m.createdAt).fromNow()}</div>
                       </div>
                     </div>

@@ -7,6 +7,7 @@ import { Send, Trash2, Loader2 } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
+import { LinkifiedText } from '@/components/common/LinkifiedText'
 import { useAuth } from '@/context/AuthContext'
 
 dayjs.extend(relativeTime)
@@ -130,7 +131,9 @@ export function PostPage() {
                       )}
                     </div>
                   </div>
-                  <p className="mt-1 whitespace-pre-wrap">{c.content}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">
+                    <LinkifiedText text={c.content} />
+                  </p>
                 </div>
               </div>
             )

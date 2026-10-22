@@ -341,6 +341,33 @@ test('change password rejects a wrong current password', async () => {
   assert.equal(res.status, 400);
 });
 
+test('messages expose clickable link parts', async () => {
+  const started = await call('POST', '/api/messages/conversations', {
+    cookie: alice,
+    body: { username: 'carol' },
+  });
+  const conversationId = started.json.conversationId;
+
+  const sent = await call('POST', `/api/messages/conversations/${conversationId}/messages`, {
+    cookie: alice,
+    body: { content: 'Read this: https://example.com/post and www.bongchat.dev too' },
+  });
+  assert.equal(sent.status, 201);
+
+  const links = sent.json.message.parts.filter((p: any) => p.type === 'link').map((p: any) => p.value);
+  assert.deepEqual(links, ['https://example.com/post', 'www.bongchat.dev']);
+
+  // The stored history carries the same segments, so links stay clickable after reload.
+  const history = await call('GET', `/api/messages/conversations/${conversationId}/messages`, {
+    cookie: alice,
+  });
+  const stored = history.json.messages.find((m: any) => m.content.includes('example.com'));
+  assert.deepEqual(
+    stored.parts.filter((p: any) => p.type === 'link').map((p: any) => p.value),
+    ['https://example.com/post', 'www.bongchat.dev'],
+  );
+});
+
 test('start a conversation and exchange a message', async () => {
   const started = await call('POST', '/api/messages/conversations', {
     cookie: alice,

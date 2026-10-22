@@ -8,7 +8,7 @@ npm-workspaces monorepo.
 
 - **Feed** — create posts with photos or short videos, like, share, comment and delete your own content.
 - **Stories** — 24-hour photo, video or text stories with gradient backgrounds (they expire automatically).
-- **Messaging** — real-time 1:1 conversations over Socket.IO, with photo messages and a "new message" people picker.
+- **Messaging** — real-time 1:1 conversations over Socket.IO, with photo sharing, clickable links, typing indicators and a "new message" people picker.
 - **Notifications** — likes, comments, follows, shares and messages; mark one or all as read, or clear them.
 - **Search** — unified search across people, posts and hashtags, plus quick web shortcuts.
 - **Profiles** — follow/unfollow, private accounts, followers/following lists, block users.
