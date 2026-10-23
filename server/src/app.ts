@@ -9,6 +9,7 @@ import { HttpError } from './utils/http.js';
 import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { postsRouter } from './routes/posts.js';
+import { reelsRouter } from './routes/reels.js';
 import { storiesRouter } from './routes/stories.js';
 import { messagesRouter } from './routes/messages.js';
 import { notificationsRouter } from './routes/notifications.js';
@@ -58,9 +59,18 @@ export function createApp(): express.Express {
     res.json({ ok: true, name: 'bong-chat', time: new Date().toISOString() });
   });
 
-  app.use('/api/auth', rateLimit(60_000, 30), authRouter);
+  // Brute-force guard: only the credential endpoints are limited. Session
+  // checks (`GET /me`) and logout are cheap and must never be throttled — the
+  // SPA calls `/me` on every boot, and many users can share one IP (NAT).
+  const authLimiter = rateLimit(60_000, 30);
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+  app.use('/api/auth/forgot-password', authLimiter);
+  app.use('/api/auth/reset-password', authLimiter);
+  app.use('/api/auth', authRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/posts', postsRouter);
+  app.use('/api/reels', reelsRouter);
   app.use('/api/stories', storiesRouter);
   app.use('/api/messages', messagesRouter);
   app.use('/api/notifications', notificationsRouter);

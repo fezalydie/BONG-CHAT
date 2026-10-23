@@ -915,6 +915,103 @@ test('a private account cannot have its request approved by anyone but its owner
   assert.equal(profile.json.viewer.isRequested, true, 'the request is still pending');
 });
 
+test('reels need a session and a video', async () => {
+  const anon = await call('POST', '/api/reels', { body: { videoUrl: '/uploads/reel.mp4' } });
+  assert.equal(anon.status, 401);
+
+  const missingVideo = await call('POST', '/api/reels', { cookie: alice, body: { caption: 'no video' } });
+  assert.equal(missingVideo.status, 400);
+});
+
+test('reels can be published, listed, liked, viewed, commented on and deleted', async () => {
+  const created = await call('POST', '/api/reels', {
+    cookie: alice,
+    body: { videoUrl: '/uploads/reel-demo.mp4', caption: 'My first reel' },
+  });
+  assert.equal(created.status, 201);
+  const reel = created.json.reel;
+  const reelId = reel.id;
+  assert.equal(reel.videoUrl, '/uploads/reel-demo.mp4');
+  assert.equal(reel.caption, 'My first reel');
+  assert.equal(reel.author.id, aliceId, 'the author is the creator, not the reel id');
+
+  const feed = await call('GET', '/api/reels', { cookie: alice });
+  assert.equal(feed.status, 200);
+  assert.ok(feed.json.items.some((r: any) => r.id === reelId));
+
+  // A profile-scoped feed only returns that author's reels.
+  const byUsername = await call('GET', '/api/reels?username=alice', { cookie: alice });
+  assert.equal(byUsername.status, 200);
+  assert.ok(byUsername.json.items.every((r: any) => r.author.username === 'alice'));
+
+  // Views are unique per viewer.
+  const firstView = await call('POST', `/api/reels/${reelId}/view`, { cookie: bob });
+  const secondView = await call('POST', `/api/reels/${reelId}/view`, { cookie: bob });
+  assert.equal(firstView.status, 200);
+  assert.equal(secondView.json.views, firstView.json.views);
+
+  // Likes toggle on and off.
+  const liked = await call('POST', `/api/reels/${reelId}/like`, { cookie: bob });
+  assert.equal(liked.status, 200);
+  assert.equal(liked.json.liked, true);
+  assert.equal(liked.json.likes, 1);
+
+  const unliked = await call('POST', `/api/reels/${reelId}/like`, { cookie: bob });
+  assert.equal(unliked.json.liked, false);
+  assert.equal(unliked.json.likes, 0);
+
+  // Comments round-trip and carry the commenter's real user id.
+  const commented = await call('POST', `/api/reels/${reelId}/comments`, {
+    cookie: bob,
+    body: { content: 'Nice reel!' },
+  });
+  assert.equal(commented.status, 201);
+  assert.equal(commented.json.comment.content, 'Nice reel!');
+  assert.notEqual(commented.json.comment.author.id, aliceId);
+
+  const comments = await call('GET', `/api/reels/${reelId}/comments`, { cookie: alice });
+  assert.equal(comments.status, 200);
+  assert.ok(comments.json.items.some((c: any) => c.content === 'Nice reel!'));
+
+  const removed = await call('DELETE', `/api/reels/${reelId}/comments/${commented.json.comment.id}`, {
+    cookie: bob,
+  });
+  assert.equal(removed.status, 200);
+
+  // Only the author may delete the reel.
+  const denied = await call('DELETE', `/api/reels/${reelId}`, { cookie: bob });
+  assert.equal(denied.status, 403);
+
+  const deleted = await call('DELETE', `/api/reels/${reelId}`, { cookie: alice });
+  assert.equal(deleted.status, 200);
+
+  const after = await call('GET', `/api/reels`, { cookie: alice });
+  assert.ok(!after.json.items.some((r: any) => r.id === reelId));
+});
+
+test('reels from private accounts stay hidden from non-followers', async () => {
+  await call('PUT', '/api/settings', { cookie: carol, body: { isPrivate: true } });
+  const created = await call('POST', '/api/reels', {
+    cookie: carol,
+    body: { videoUrl: '/uploads/private-reel.mp4', caption: 'private clip' },
+  });
+  assert.equal(created.status, 201);
+  const reelId = created.json.reel.id;
+
+  const hidden = await call('GET', `/api/reels/${reelId}`, { cookie: bob });
+  assert.equal(hidden.status, 403);
+
+  const direct = await call('POST', `/api/reels/${reelId}/like`, { cookie: bob });
+  assert.equal(direct.status, 403);
+
+  const own = await call('GET', `/api/reels/${reelId}`, { cookie: carol });
+  assert.equal(own.status, 200);
+
+  // Leave carol public again for later tests.
+  await call('PUT', '/api/settings', { cookie: carol, body: { isPrivate: false } });
+  await call('DELETE', `/api/reels/${reelId}`, { cookie: carol });
+});
+
 test('the password reset flow issues a usable, single-use token', async () => {
   const forgot = await call('POST', '/api/auth/forgot-password', {
     body: { email: 'alice@test.dev' },

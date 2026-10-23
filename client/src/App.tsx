@@ -16,6 +16,7 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { EditProfilePage } from './pages/EditProfilePage'
 import { CreatePostPage } from './pages/CreatePostPage'
+import { ReelsPage } from './pages/ReelsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -56,6 +57,16 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <HomePage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reels"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ReelsPage />
               </AppLayout>
             </ProtectedRoute>
           }

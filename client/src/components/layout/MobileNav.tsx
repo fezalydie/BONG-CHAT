@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { Home, MessageCircle, Search, Bell, Sparkles, Settings } from 'lucide-react'
+import { Home, MessageCircle, Search, Bell, Sparkles, Settings, Film } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useSocket } from '@/context/SocketContext'
 import { cn } from '@/utils/cn'
 
 const items = [
   { to: '/', icon: Home, label: 'Feed' },
+  { to: '/reels', icon: Film, label: 'Reels' },
   { to: '/messages', icon: MessageCircle, label: 'Messages' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/notifications', icon: Bell, label: 'Notifications' },

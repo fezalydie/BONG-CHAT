@@ -1,19 +1,20 @@
 # BONG CHAT
 
-An all-in-one social networking platform — a feed, 24-hour stories, real-time
-messaging, notifications, search and a built-in AI assistant — in a single
-npm-workspaces monorepo.
+An all-in-one social networking platform — a feed, reels, 24-hour stories,
+real-time messaging, notifications, search and a built-in AI assistant — in a
+single npm-workspaces monorepo.
 
 ## Features
 
 - **Feed** — create posts with photos or short videos, like, share, comment and delete your own content.
+- **Reels** — a full-screen, snap-scrolling feed of short vertical videos with likes, comments and unique view counts; upload your own from the Reels page.
 - **Stories** — 24-hour photo, video or text stories with gradient backgrounds (they expire automatically).
 - **Messaging** — real-time 1:1 conversations over Socket.IO, with photo sharing, clickable links, typing indicators and a "new message" people picker.
-- **Notifications** — likes, comments, follows, shares and messages; mark one or all as read, or clear them.
+- **Notifications** — likes, comments, follows, follow requests and approvals, shares and messages; mark one or all as read, or clear them.
 - **Search** — unified search across people, posts and hashtags, plus quick web shortcuts.
 - **Profiles** — follow/unfollow, private accounts with follow requests (approve/decline), followers/following lists, block users.
 - **AI assistant** — a built-in helper out of the box; plug in an OpenAI-compatible provider to upgrade it.
-- **Settings** — theme (light/dark/system), language, privacy, notification preferences, password change, blocked accounts and account deletion.
+- **Settings** — theme (light/dark/system), language, privacy and follow requests, notification preferences, password change, blocked accounts and account deletion.
 - **Quick links** — official entry points to Facebook, Instagram and WhatsApp.
 
 ## Tech stack
@@ -119,11 +120,11 @@ Node's built-in test runner via `tsx` — no extra test framework is required. T
 suite boots the real Express app against a throwaway SQLite database and uploads
 folder in the system temp directory, so your development data is never touched.
 It covers auth (register, login, change/reset password), posts and comments,
-likes/shares/views, follows, follow requests, blocking, private accounts, profile
-and settings updates, stories (text, photo and video), messaging (send, read
-receipts, conversation list, typing indicators), image and video uploads,
-notifications (per-item and bulk read), search, the assistant and account
-deletion.
+likes/shares/views, reels (publish, like, view, comment, privacy), follows,
+follow requests, blocking, private accounts, profile and settings updates,
+stories (text, photo and video), messaging (send, read receipts, conversation
+list, typing indicators), image and video uploads, notifications (per-item and
+bulk read), search, the assistant and account deletion.
 
 
 ## Deployment
@@ -204,7 +205,7 @@ variables have sensible defaults for local development.
 | `DATABASE_URL`       | —                        | PostgreSQL connection string (when `DB_CLIENT=pg`)     |
 | `UPLOAD_DIR`         | `./uploads`              | Where uploaded images are stored                       |
 | `MAX_UPLOAD_MB`      | `8`                      | Maximum image upload size in megabytes                 |
-| `MAX_VIDEO_MB`       | `50`                     | Maximum video upload size in megabytes (stories and posts) |
+| `MAX_VIDEO_MB`       | `50`                     | Maximum video upload size in megabytes (stories, posts and reels) |
 | `STORY_TTL_HOURS`    | `24`                     | How long a story lasts before expiring                 |
 | `AI_PROVIDER`        | —                        | AI provider id; when unset, the built-in assistant is used |
 | `AI_API_KEY`         | —                        | API key for the AI provider                            |
@@ -221,6 +222,7 @@ session cookie.
 | Auth          | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`; `GET /auth/me` |
 | Users         | `GET /users/me`, `PUT /users/me`, `DELETE /users/me`; `GET /users/:username`, `/followers`, `/following`; `POST /users/:username/follow`, `/block`; `GET /users/suggestions`, `/blocked`; `GET /users/requests`, `POST /users/requests/:username/accept`, `/reject` |
 | Posts         | `GET /posts`, `POST /posts` (accepts `imageUrl` or `videoUrl`), `GET /posts/:id`, `DELETE /posts/:id`; `POST /posts/:id/like`, `/share`, `/view`; `GET`/`POST /posts/:id/comments`, `DELETE /posts/:id/comments/:commentId` |
+| Reels         | `GET /reels` (`?username=`, `?page=`), `POST /reels` (requires `videoUrl`), `GET /reels/:id`, `DELETE /reels/:id`; `POST /reels/:id/like`, `/view`; `GET`/`POST /reels/:id/comments`, `DELETE /reels/:id/comments/:commentId` |
 | Stories       | `GET /stories`, `POST /stories`, `GET /stories/:id`, `POST /stories/:id/view`, `DELETE /stories/:id` |
 | Messages      | `GET`/`POST /messages/conversations`; `GET`/`POST /messages/conversations/:id/messages`; `POST /messages/conversations/:id/read` |
 | Notifications | `GET /notifications`, `POST /notifications/read-all`, `POST /notifications/:id/read`, `DELETE /notifications` |

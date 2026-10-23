@@ -9,6 +9,7 @@ import {
   Sparkles,
   LogOut,
   Plus,
+  Film,
 } from 'lucide-react'
 import { BongChatLogo, PLATFORM_ICONS } from '@/components/BrandIcons'
 import { useAuth } from '@/context/AuthContext'
@@ -18,6 +19,7 @@ import { cn } from '@/utils/cn'
 
 const navItems = [
   { to: '/', icon: Home, label: 'Feed' },
+  { to: '/reels', icon: Film, label: 'Reels' },
   { to: '/messages', icon: MessageCircle, label: 'Messages' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/profile', icon: Users, label: 'Profile' },
