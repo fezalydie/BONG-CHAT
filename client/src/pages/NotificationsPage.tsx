@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import type { Notification } from '@/types/other'
-import { Heart, MessageCircle, UserPlus, UserCheck, Repeat2, Mail, Bell, Trash2, Check, X } from 'lucide-react'
+import { Heart, MessageCircle, UserPlus, UserCheck, Repeat2, Mail, Bell, Trash2, Check, X, Film } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
@@ -122,7 +122,14 @@ export function NotificationsPage() {
 
       <div className="mt-4 flex flex-col gap-2">
         {notifications.map((n) => {
-          const Icon = ICONS[n.type] ?? Bell
+          // Reels reuse the like/comment types, so the payload decides the wording.
+          const isReel = Boolean(n.data?.reelId)
+          const Icon = isReel ? Film : ICONS[n.type] ?? Bell
+          const label = isReel
+            ? n.type === 'comment'
+              ? 'commented on your reel'
+              : 'liked your reel'
+            : LABELS[n.type] ?? 'sent you a notification'
           const actor = n.data?.actor as { displayName?: string; username?: string; avatarUrl?: string } | undefined
           return (
             <div
@@ -155,7 +162,7 @@ export function NotificationsPage() {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm">
                     {actor?.displayName && <span className="font-semibold">{actor.displayName} </span>}
-                    {LABELS[n.type] ?? 'sent you a notification'}
+                    {label}
                   </div>
                   {n.data?.preview && (
                     <div className="truncate text-xs text-ink-500 dark:text-ink-400">{n.data.preview}</div>

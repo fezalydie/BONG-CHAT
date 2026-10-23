@@ -195,7 +195,7 @@ reelsRouter.post(
         actorId: viewerId,
         type: 'like',
         entityId: row.id,
-        link: `/reels`,
+        link: `/reels?username=${encodeURIComponent(row.username)}`,
         data: { reelId: row.id },
       });
     }
@@ -283,7 +283,7 @@ reelsRouter.post(
       actorId: req.user!.id,
       type: 'comment',
       entityId: row.id,
-      link: `/reels`,
+      link: `/reels?username=${encodeURIComponent(row.username)}`,
       data: { reelId: row.id, excerpt: body.content.slice(0, 120) },
     });
     ok(

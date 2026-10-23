@@ -956,6 +956,14 @@ test('reels can be published, listed, liked, viewed, commented on and deleted', 
   assert.equal(liked.json.liked, true);
   assert.equal(liked.json.likes, 1);
 
+  // The author is notified with a link to their own reels.
+  const authorNotes = await call('GET', '/api/notifications', { cookie: alice });
+  const likeNote = authorNotes.json.notifications.find(
+    (n: any) => n.type === 'like' && n.data?.reelId === reelId,
+  );
+  assert.ok(likeNote, 'the author receives a reel-like notification');
+  assert.equal(likeNote.link, '/reels?username=alice');
+
   const unliked = await call('POST', `/api/reels/${reelId}/like`, { cookie: bob });
   assert.equal(unliked.json.liked, false);
   assert.equal(unliked.json.likes, 0);
