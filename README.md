@@ -11,7 +11,7 @@ npm-workspaces monorepo.
 - **Messaging** — real-time 1:1 conversations over Socket.IO, with photo sharing, clickable links, typing indicators and a "new message" people picker.
 - **Notifications** — likes, comments, follows, shares and messages; mark one or all as read, or clear them.
 - **Search** — unified search across people, posts and hashtags, plus quick web shortcuts.
-- **Profiles** — follow/unfollow, private accounts, followers/following lists, block users.
+- **Profiles** — follow/unfollow, private accounts with follow requests (approve/decline), followers/following lists, block users.
 - **AI assistant** — a built-in helper out of the box; plug in an OpenAI-compatible provider to upgrade it.
 - **Settings** — theme (light/dark/system), language, privacy, notification preferences, password change, blocked accounts and account deletion.
 - **Quick links** — official entry points to Facebook, Instagram and WhatsApp.
@@ -119,10 +119,11 @@ Node's built-in test runner via `tsx` — no extra test framework is required. T
 suite boots the real Express app against a throwaway SQLite database and uploads
 folder in the system temp directory, so your development data is never touched.
 It covers auth (register, login, change/reset password), posts and comments,
-likes/shares/views, follows, blocking, private accounts, profile and settings
-updates, stories, messaging (send, read receipts, conversation list), image
-uploads, notifications (per-item and bulk read), search, the assistant and
-account deletion.
+likes/shares/views, follows, follow requests, blocking, private accounts, profile
+and settings updates, stories (text, photo and video), messaging (send, read
+receipts, conversation list, typing indicators), image and video uploads,
+notifications (per-item and bulk read), search, the assistant and account
+deletion.
 
 
 ## Deployment
@@ -218,7 +219,7 @@ session cookie.
 | Area          | Endpoints                                                                                 |
 | ------------- | ----------------------------------------------------------------------------------------- |
 | Auth          | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`; `GET /auth/me` |
-| Users         | `GET /users/me`, `PUT /users/me`, `DELETE /users/me`; `GET /users/:username`, `/followers`, `/following`; `POST /users/:username/follow`, `/block`; `GET /users/suggestions`, `/blocked` |
+| Users         | `GET /users/me`, `PUT /users/me`, `DELETE /users/me`; `GET /users/:username`, `/followers`, `/following`; `POST /users/:username/follow`, `/block`; `GET /users/suggestions`, `/blocked`; `GET /users/requests`, `POST /users/requests/:username/accept`, `/reject` |
 | Posts         | `GET /posts`, `POST /posts` (accepts `imageUrl` or `videoUrl`), `GET /posts/:id`, `DELETE /posts/:id`; `POST /posts/:id/like`, `/share`, `/view`; `GET`/`POST /posts/:id/comments`, `DELETE /posts/:id/comments/:commentId` |
 | Stories       | `GET /stories`, `POST /stories`, `GET /stories/:id`, `POST /stories/:id/view`, `DELETE /stories/:id` |
 | Messages      | `GET`/`POST /messages/conversations`; `GET`/`POST /messages/conversations/:id/messages`; `POST /messages/conversations/:id/read` |
