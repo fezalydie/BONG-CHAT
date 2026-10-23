@@ -254,6 +254,41 @@ postsRouter.get(
   }),
 );
 
+postsRouter.put(
+  '/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        content: z.string().trim().max(2000).optional().default(''),
+        imageUrl: z.string().trim().max(500).optional().default(''),
+        videoUrl: z.string().trim().max(500).optional().default(''),
+      })
+      .parse(req.body);
+    const post = await db('posts').where({ id: Number(req.params.id) }).first();
+    if (!post) throw new HttpError(404, 'Post not found.');
+    if (post.user_id !== req.user!.id) throw new HttpError(403, 'You can only edit your own posts.');
+    if (!body.content && !body.imageUrl && !body.videoUrl) {
+      throw new HttpError(400, 'Write something, add a photo, or add a video first.');
+    }
+    const imageUrl = body.videoUrl ? '' : body.imageUrl;
+    await db('posts')
+      .where({ id: post.id })
+      .update({
+        content: body.content,
+        image_url: imageUrl,
+        video_url: body.videoUrl,
+      });
+    const row = await db('posts as p')
+      .join('users as u', 'u.id', 'p.user_id')
+      .where('p.id', post.id)
+      .select('p.*', 'u.id as uid', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.is_private', 'u.created_at as u_created_at')
+      .first();
+    const [updated] = await decorate([row], req.user!.id);
+    ok(res, { post: updated });
+  }),
+);
+
 postsRouter.delete(
   '/:id',
   requireAuth,

@@ -12,10 +12,6 @@ export function isOnline(userId: number): boolean {
   return (online.get(userId)?.size ?? 0) > 0;
 }
 
-export function onlineUserIds(): number[] {
-  return [...online.keys()];
-}
-
 export function emitToUser(userId: number, event: string, payload: unknown): void {
   if (!io) return;
   io.to(`user:${userId}`).emit(event, payload);

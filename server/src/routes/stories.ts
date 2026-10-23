@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db, isoNow, isoInHours } from '../db.js';
+import { config } from '../config.js';
 import { asyncHandler, HttpError, ok } from '../utils/http.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { canViewContent, mapAuthor, mapUser, linkify } from '../utils/users.js';
@@ -103,7 +104,7 @@ storiesRouter.post(
         video_url: body.videoUrl,
         style: body.style,
         created_at: now,
-        expires_at: isoInHours(Number(process.env.STORY_TTL_HOURS ?? 24)),
+        expires_at: isoInHours(config.storyTtlHours),
       })
       .returning('id');
     const row = await db('stories as s')

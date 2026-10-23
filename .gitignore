@@ -22,3 +22,7 @@ server/.env
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Throwaway local probe scripts
+_*probe*.mjs
+.verify-*/

@@ -292,6 +292,50 @@ test('profile posts are paginated without gaps or duplicates', async () => {
   assert.equal(new Set(ids).size, 12, 'every post appears exactly once across pages');
 });
 
+test('editing a post updates it and stays private to the author', async () => {
+  const created = await call('POST', '/api/posts', {
+    cookie: alice,
+    body: { content: 'First draft #old' },
+  });
+  assert.equal(created.status, 201);
+  const id = created.json.post.id;
+
+  const edited = await call('PUT', `/api/posts/${id}`, {
+    cookie: alice,
+    body: { content: 'Final draft #new', imageUrl: '/uploads/edited.jpg' },
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.json.post.content, 'Final draft #new');
+  assert.equal(edited.json.post.imageUrl, '/uploads/edited.jpg');
+  assert.deepEqual(edited.json.post.hashtags, ['new'], 'hashtags follow the edited text');
+
+  const single = await call('GET', `/api/posts/${id}`, { cookie: bob });
+  assert.equal(single.json.post.content, 'Final draft #new', 'other viewers see the new text');
+
+  const byOther = await call('PUT', `/api/posts/${id}`, {
+    cookie: bob,
+    body: { content: 'hijacked' },
+  });
+  assert.equal(byOther.status, 403);
+  const unchanged = await call('GET', `/api/posts/${id}`, { cookie: alice });
+  assert.equal(unchanged.json.post.content, 'Final draft #new');
+
+  const emptied = await call('PUT', `/api/posts/${id}`, {
+    cookie: alice,
+    body: { content: '', imageUrl: '', videoUrl: '' },
+  });
+  assert.equal(emptied.status, 400, 'a post cannot be edited down to nothing');
+
+  const anonymous = await call('PUT', `/api/posts/${id}`, { body: { content: 'anon' } });
+  assert.equal(anonymous.status, 401);
+
+  const missing = await call('PUT', '/api/posts/999999', {
+    cookie: alice,
+    body: { content: 'ghost' },
+  });
+  assert.equal(missing.status, 404);
+});
+
 test('comments can be created and deleted', async () => {
   const created = await call('POST', `/api/posts/${postId}/comments`, {
     cookie: bob,

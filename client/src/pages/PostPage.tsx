@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Post, Comment } from '@/types/post'
 import { PostCard } from '@/components/posts/PostCard'
@@ -16,12 +16,18 @@ export function PostPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const toast = useToast()
+  const [editing, setEditing] = useState(searchParams.get('edit') === '1')
+  const [editContent, setEditContent] = useState('')
+  const [editImage, setEditImage] = useState('')
+  const [editVideo, setEditVideo] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   const load = async () => {
     if (!id) return
@@ -29,6 +35,9 @@ export function PostPage() {
     try {
       const p = await api<any>(`/posts/${id}`)
       setPost(p.post)
+      setEditContent(p.post.content || '')
+      setEditImage(p.post.imageUrl || '')
+      setEditVideo(p.post.videoUrl || '')
       setError(null)
       const c = await api<any>(`/posts/${id}/comments`)
       setComments(c.comments)
@@ -56,6 +65,27 @@ export function PostPage() {
       setContent('')
     } catch (err: any) {
       toast.push({ title: 'Failed', description: err.message, type: 'error' })
+    }
+  }
+
+  const saveEdit = async () => {
+    if (!id || !post) return
+    setSavingEdit(true)
+    try {
+      const data = await api<any>(`/posts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content: editContent, imageUrl: editImage, videoUrl: editVideo }),
+      })
+      setPost(data.post)
+      setEditing(false)
+      const sp = new URLSearchParams(searchParams)
+      sp.delete('edit')
+      setSearchParams(sp, { replace: true })
+      toast.push({ title: 'Post updated', type: 'success' })
+    } catch (err: any) {
+      toast.push({ title: 'Could not update post', description: err.message, type: 'error' })
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -122,10 +152,45 @@ export function PostPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PostCard
-        item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
-        onDeleted={() => navigate('/', { replace: true })}
-      />
+      {editing && post.author.id === user?.id ? (
+        <div className="surface flex flex-col gap-3 p-4 md:p-6">
+          <div className="text-sm font-semibold">Edit post</div>
+          <textarea
+            className="min-h-[120px] rounded-2xl border border-slate-200 bg-white/90 p-3 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900/80"
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+          />
+          <div className="grid gap-2 md:grid-cols-2">
+            <input
+              className="rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900/80"
+              placeholder="Image URL"
+              value={editImage}
+              onChange={(e) => { setEditImage(e.target.value); if (e.target.value) setEditVideo(''); }}
+            />
+            <input
+              className="rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900/80"
+              placeholder="Video URL"
+              value={editVideo}
+              onChange={(e) => { setEditVideo(e.target.value); if (e.target.value) setEditImage(''); }}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button className="btn-ghost" onClick={() => { setEditing(false); const sp = new URLSearchParams(searchParams); sp.delete('edit'); setSearchParams(sp, { replace: true }); }}>Cancel</button>
+            <button
+              className="btn-primary"
+              onClick={saveEdit}
+              disabled={savingEdit || (!editContent.trim() && !editImage.trim() && !editVideo.trim())}
+            >
+              {savingEdit ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <PostCard
+          item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
+          onDeleted={() => navigate('/', { replace: true })}
+        />
+      )}
       <div className="surface p-4 md:p-6">
         <div className="flex flex-col gap-3">
           {comments.map((c) => {

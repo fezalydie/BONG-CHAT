@@ -39,6 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refresh()
   }, [])
 
+  // The API layer fires this when a request comes back 401 after the session
+  // has expired. Clearing the user sends ProtectedRoute back to /auth.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null)
+      setUnreadNotifications(0)
+    }
+    window.addEventListener('bongchat:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('bongchat:unauthorized', onUnauthorized)
+  }, [])
+
   const value = useMemo(
     () => ({
       user,

@@ -112,9 +112,14 @@ export function PostCard({ item, onDeleted }: { item: FeedItem; onDeleted?: (pos
                 View post
               </button>
               {post.author.id === user?.id && (
-                <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-rose-600 hover:bg-slate-100/80 dark:hover:bg-slate-800/70" onClick={deletePost}>
-                  Delete
-                </button>
+                <>
+                  <button className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100/80 dark:hover:bg-slate-800/70" onClick={() => { setMenuOpen(false); navigate(`/post/${post.id}?edit=1`) }}>
+                    Edit
+                  </button>
+                  <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-rose-600 hover:bg-slate-100/80 dark:hover:bg-slate-800/70" onClick={deletePost}>
+                    Delete
+                  </button>
+                </>
               )}
             </div>
           )}
