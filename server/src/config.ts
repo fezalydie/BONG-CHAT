@@ -10,10 +10,21 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * How many reverse-proxy hops to trust when resolving `req.ip`.
+ * 0 (the default) means "trust no proxy", so a client cannot spoof its address
+ * with an `X-Forwarded-For` header and slip past the auth rate limiter.
+ */
+function hops(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
 export const config = {
   port: num(process.env.PORT, 4000),
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
   isProd: process.env.NODE_ENV === 'production',
+  trustProxyHops: hops(process.env.TRUST_PROXY),
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   sessionTtlHours: num(process.env.SESSION_TTL_HOURS, 168),
   db: {

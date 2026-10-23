@@ -22,11 +22,19 @@ import { integrationsRouter } from './routes/integrations.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** Very small in-memory limiter for the auth endpoints (brute-force guard). */
-function rateLimit(windowMs: number, max: number) {
+export function rateLimit(windowMs: number, max: number) {
   const hits = new Map<string, { count: number; resetAt: number }>();
+  // Expired entries are only overwritten when the same address comes back, so
+  // sweep them before the map can grow without bound (many IPv6 addresses).
+  const SWEEP_ABOVE = 1000;
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const key = req.ip ?? 'unknown';
     const now = Date.now();
+    if (hits.size > SWEEP_ABOVE) {
+      for (const [address, entry] of hits) {
+        if (entry.resetAt < now) hits.delete(address);
+      }
+    }
     const entry = hits.get(key);
     if (!entry || entry.resetAt < now) {
       hits.set(key, { count: 1, resetAt: now + windowMs });
@@ -45,7 +53,20 @@ function rateLimit(windowMs: number, max: number) {
 export function createApp(): express.Express {
   const app = express();
 
-  app.set('trust proxy', 1);
+  // Express must not believe X-Forwarded-For unless a proxy really sits in
+  // front of us: otherwise any client can spoof req.ip and dodge the limiter.
+  if (config.trustProxyHops > 0) {
+    app.set('trust proxy', config.trustProxyHops);
+  }
+
+  // Small, dependency-free set of hardening headers.
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   app.use(
     cors({
       origin: config.webOrigin,

@@ -37,6 +37,7 @@ interface ApiResult {
   status: number;
   json: any;
   cookie?: string;
+  headers: Headers;
 }
 
 async function call(
@@ -64,6 +65,7 @@ async function call(
     status: res.status,
     json,
     cookie: setCookies.length ? setCookies.map((c) => c.split(';')[0]).join('; ') : undefined,
+    headers: res.headers,
   };
 }
 
@@ -105,6 +107,39 @@ test('health check is public', async () => {
   const res = await call('GET', '/api/health');
   assert.equal(res.status, 200);
   assert.equal(res.json.ok, true);
+});
+
+test('responses carry basic hardening headers', async () => {
+  const res = await call('GET', '/api/health');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+  assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+});
+
+test('reverse proxies are not trusted unless configured', async () => {
+  // Trusting X-Forwarded-For blindly would let anyone spoof req.ip and dodge
+  // the login rate limiter, so the default must keep it off.
+  const { config } = await import('../src/config.js');
+  assert.equal(config.trustProxyHops, 0);
+});
+
+test('the auth rate limiter throttles repeated attempts', async () => {
+  const { rateLimit } = await import('../src/app.js');
+  const limiter = rateLimit(60_000, 2);
+  const hit = () =>
+    new Promise<number>((resolve) => {
+      const req = { ip: '203.0.113.7' } as any;
+      const res = {
+        status(code: number) {
+          return { json: () => resolve(code) };
+        },
+      } as any;
+      limiter(req, res, () => resolve(200));
+    });
+
+  assert.equal(await hit(), 200);
+  assert.equal(await hit(), 200);
+  assert.equal(await hit(), 429, 'the third attempt in the window is refused');
 });
 
 test('unknown API routes return a JSON 404', async () => {
@@ -451,6 +486,11 @@ test('stories can be created, listed and deleted', async () => {
   });
   assert.equal(created.status, 201);
   const storyId = created.json.story.id;
+
+  // The lifetime comes from config.storyTtlHours (default 24h); a malformed
+  // STORY_TTL_HOURS must not make stories expire the moment they are created.
+  const ttlHours = (new Date(created.json.story.expiresAt).getTime() - Date.now()) / 3_600_000;
+  assert.ok(ttlHours > 23.9 && ttlHours < 24.1, `story should expire in ~24h (got ${ttlHours.toFixed(2)}h)`);
 
   const rail = await call('GET', '/api/stories', { cookie: alice });
   assert.equal(rail.status, 200);
