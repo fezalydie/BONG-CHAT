@@ -37,11 +37,13 @@ export function mapAuthor(row: Record<string, any>): PublicUser {
 }
 
 /** Relationship of the viewer towards the profile owner. */
-export interface ViewerFlags {  isMe: boolean;
+export interface ViewerFlags {
+  isMe: boolean;
   isFollowing: boolean;
   /** An outgoing request waiting for a private account to approve it. */
   isRequested: boolean;
   isFollowedBy: boolean;
+  /** True when either side has blocked the other. */
   isBlocked: boolean;
 }
 
@@ -55,17 +57,19 @@ export async function viewerFlags(viewerId: number | undefined, ownerId: number)
       isBlocked: false,
     };
   }
-  const [follow, reverse, block] = await Promise.all([
+  const [follow, reverse, block, blockedByThem] = await Promise.all([
     db('follows').where({ follower_id: viewerId, follow_id: ownerId }).first(),
     db('follows').where({ follower_id: ownerId, follow_id: viewerId }).first(),
     db('blocks').where({ blocker_id: viewerId, blocked_id: ownerId }).first(),
+    db('blocks').where({ blocker_id: ownerId, blocked_id: viewerId }).first(),
   ]);
   return {
     isMe: false,
     isFollowing: Boolean(follow) && follow.status === 'accepted',
     isRequested: Boolean(follow) && follow.status === 'pending',
     isFollowedBy: Boolean(reverse) && reverse.status === 'accepted',
-    isBlocked: Boolean(block),
+    // Blocking is symmetric for visibility: if either side blocked, neither sees.
+    isBlocked: Boolean(block) || Boolean(blockedByThem),
   };
 }
 

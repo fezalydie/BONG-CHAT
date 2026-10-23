@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { db, isoNow, isoInHours } from '../db.js';
 import { asyncHandler, HttpError, ok } from '../utils/http.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import { canViewContent, mapAuthor, mapUser } from '../utils/users.js';
+import { canViewContent, mapAuthor, mapUser, linkify } from '../utils/users.js';
+import { emitToUser } from '../sockets/index.js';
+import { notify } from '../services/notify.js';
+import { findOrCreateDirectConversation } from '../services/conversations.js';
 
 export const storiesRouter = Router();
 
@@ -112,6 +115,86 @@ storiesRouter.post(
   }),
 );
 
+/** Reply to a story. Creates (or reuses) a direct conversation and notifies the author. */
+storiesRouter.post(
+  '/:id/reply',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const body = z.object({ content: z.string().trim().min(1).max(1000) }).parse(req.body);
+    const story = await db('stories').where({ id: Number(req.params.id) }).first();
+    if (!story) throw new HttpError(404, 'Story not found.');
+    if (story.user_id === req.user!.id) throw new HttpError(400, 'You cannot reply to your own story.');
+    if (story.expires_at <= isoNow()) throw new HttpError(410, 'This story has expired.');
+    if (!(await canViewContent(req.user!.id, story.user_id))) {
+      throw new HttpError(403, 'You cannot reply to this story.');
+    }
+
+    const author = await db('users').where({ id: story.user_id }).first();
+    const sender = await db('users').where({ id: req.user!.id }).first();
+    const { id: conversationId } = await findOrCreateDirectConversation(req.user!.id, story.user_id);
+
+    // Keep a small copy of the story so the reply still reads well once the
+    // original story has expired and been purged.
+    const snapshot = {
+      id: story.id,
+      content: story.content,
+      imageUrl: story.image_url,
+      videoUrl: story.video_url ?? '',
+      style: story.style,
+      createdAt: story.created_at,
+      authorId: author.id,
+      authorUsername: author.username,
+    };
+
+    const now = isoNow();
+    const [inserted] = await db('messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_id: req.user!.id,
+        content: body.content,
+        image_url: '',
+        story_id: story.id,
+        story_snapshot: JSON.stringify(snapshot),
+        created_at: now,
+      })
+      .returning('id');
+    const messageId = typeof inserted === 'object' ? (inserted as any).id : inserted;
+    await db('conversations').where({ id: conversationId }).update({ last_message_at: now });
+
+    const payload = {
+      id: messageId,
+      conversationId,
+      content: body.content,
+      imageUrl: '',
+      createdAt: now,
+      readAt: null,
+      parts: linkify(body.content),
+      storyId: story.id,
+      story: snapshot,
+      sender: {
+        id: sender.id,
+        username: sender.username,
+        displayName: sender.display_name,
+        avatarUrl: sender.avatar_url,
+      },
+    };
+
+    emitToUser(story.user_id, 'message:new', payload);
+    emitToUser(story.user_id, 'conversation:updated', { conversationId });
+    await notify({
+      userId: story.user_id,
+      actorId: req.user!.id,
+      type: 'message',
+      entityId: conversationId,
+      link: `/messages/${conversationId}`,
+      onlyWhenOffline: true,
+      data: { preview: `Replied to your story: ${body.content.slice(0, 60)}` },
+    });
+
+    ok(res, { conversationId, message: payload }, 201);
+  }),
+);
+
 /** A single story plus its viewer list (viewer list only for the author). */
 storiesRouter.get(
   '/:id',
@@ -146,6 +229,12 @@ storiesRouter.post(
     const story = await db('stories').where({ id: Number(req.params.id) }).first();
     if (!story) throw new HttpError(404, 'Story not found.');
     if (!(await canViewContent(req.user!.id, story.user_id))) throw new HttpError(403, 'Not allowed.');
+    // The author is not a viewer of their own story.
+    if (story.user_id === req.user!.id) {
+      const views = await db('story_views').where({ story_id: story.id }).count('* as c').first();
+      ok(res, { views: Number((views as any)?.c ?? 0), seen: true });
+      return;
+    }
     const existing = await db('story_views')
       .where({ story_id: story.id, user_id: req.user!.id })
       .first();

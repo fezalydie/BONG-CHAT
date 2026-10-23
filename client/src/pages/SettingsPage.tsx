@@ -33,6 +33,11 @@ interface Platform {
   color: string
 }
 
+interface FollowRequest {
+  user: PublicUser
+  requestedAt: string
+}
+
 export function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const { setUser } = useAuth()
@@ -41,6 +46,7 @@ export function SettingsPage() {
 
   const [settings, setSettings] = useState<any>(null)
   const [blocked, setBlocked] = useState<PublicUser[]>([])
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -71,9 +77,19 @@ export function SettingsPage() {
     }
   }
 
+  const loadFollowRequests = async () => {
+    try {
+      const data = await api<{ requests: FollowRequest[] }>('/users/requests')
+      setFollowRequests(data.requests)
+    } catch {
+      /* not fatal */
+    }
+  }
+
   useEffect(() => {
     loadSettings()
     loadBlocked()
+    loadFollowRequests()
     api<{ platforms: Platform[] }>('/integrations')
       .then((data) => setPlatforms(data.platforms ?? []))
       .catch(() => undefined)
@@ -93,6 +109,9 @@ export function SettingsPage() {
         }),
       })
       setSettings(data.settings)
+      // Switching from private to public auto-approves pending requests, so
+      // refresh the list instead of showing requests that no longer exist.
+      void loadFollowRequests()
       toast.push({ title: 'Settings saved', type: 'success' })
     } catch (err: any) {
       toast.push({ title: 'Failed to save', description: err.message, type: 'error' })
@@ -134,6 +153,19 @@ export function SettingsPage() {
       toast.push({ title: `Unblocked @${username}`, type: 'success' })
     } catch (err: any) {
       toast.push({ title: 'Failed', description: err.message, type: 'error' })
+    }
+  }
+
+  const respondToRequest = async (username: string, action: 'accept' | 'reject') => {
+    try {
+      await api<any>(`/users/requests/${username}/${action}`, { method: 'POST' })
+      setFollowRequests((list) => list.filter((r) => r.user.username !== username))
+      toast.push({
+        title: action === 'accept' ? `Approved @${username}` : `Declined @${username}`,
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast.push({ title: 'Could not update request', description: err.message, type: 'error' })
     }
   }
 
@@ -208,6 +240,42 @@ export function SettingsPage() {
           </select>
         </div>
       </div>
+
+      {followRequests.length > 0 && (
+        <div className="surface p-6">
+          <h1 className="text-lg font-semibold">Follow requests</h1>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            People waiting to see your posts. Approve to let them in.
+          </p>
+          <div className="mt-4 flex flex-col gap-2">
+            {followRequests.map(({ user }) => (
+              <div key={user.id} className="flex items-center gap-3">
+                <img
+                  src={user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`}
+                  alt={user.displayName}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{user.displayName}</div>
+                  <div className="truncate text-xs text-slate-500">@{user.username}</div>
+                </div>
+                <button
+                  className="btn-primary h-9 px-3 text-xs"
+                  onClick={() => respondToRequest(user.username, 'accept')}
+                >
+                  Accept
+                </button>
+                <button
+                  className="btn-ghost h-9 px-3 text-xs"
+                  onClick={() => respondToRequest(user.username, 'reject')}
+                >
+                  Decline
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="surface p-6">
         <h1 className="text-lg font-semibold">Notifications</h1>

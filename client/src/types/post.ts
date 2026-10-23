@@ -20,6 +20,8 @@ export interface Comment {
   id: number
   content: string
   createdAt: string
+  likes: number
+  likedByMe: boolean
   author: PublicUser
 }
 

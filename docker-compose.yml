@@ -35,7 +35,8 @@ services:
       NODE_ENV: production
       PORT: '4000'
       # Reachable from the host too; set this to your real public URL behind TLS.
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:4000}
+      WEB_ORIGIN: ${WEB_ORIGIN:
+      
       # CHANGE THIS before exposing the stack. Compose reads it from your shell
       # or a root .env file; the fallback is only for a quick local try-out.
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}

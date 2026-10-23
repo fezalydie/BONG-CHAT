@@ -328,6 +328,47 @@ postsRouter.post(
   }),
 );
 
+/** Like or unlike a comment on a post. */
+postsRouter.post(
+  '/:id/comments/:commentId/like',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const post = await db('posts').where({ id: Number(req.params.id) }).first();
+    if (!post) throw new HttpError(404, 'Post not found.');
+    if (!(await canViewContent(req.user!.id, post.user_id))) throw new HttpError(403, 'Not allowed.');
+    const comment = await db('comments')
+      .where({ id: Number(req.params.commentId), post_id: post.id })
+      .first();
+    if (!comment) throw new HttpError(404, 'Comment not found.');
+
+    const existing = await db('comment_likes')
+      .where({ comment_id: comment.id, user_id: req.user!.id })
+      .first();
+    if (existing) {
+      await db('comment_likes').where({ id: existing.id }).del();
+    } else {
+      await db('comment_likes').insert({
+        comment_id: comment.id,
+        user_id: req.user!.id,
+        created_at: isoNow(),
+      });
+      if (comment.user_id !== req.user!.id) {
+        await notify({
+          userId: comment.user_id,
+          actorId: req.user!.id,
+          type: 'like',
+          entityId: post.id,
+          link: `/post/${post.id}`,
+          data: { preview: `Liked your comment: ${comment.content.slice(0, 60)}` },
+        });
+      }
+    }
+
+    const likes = await db('comment_likes').where({ comment_id: comment.id }).count('* as c').first();
+    ok(res, { likes: Number((likes as any)?.c ?? 0), likedByMe: !existing });
+  }),
+);
+
 /** Register a unique view (one per viewer per post) for the view counter. */
 postsRouter.post(
   '/:id/view',
@@ -380,11 +421,22 @@ postsRouter.get(
       )
       .orderBy('c.created_at', 'asc')
       .limit(200);
+
+    const ids = rows.map((r: any) => r.id);
+    const [likes, myLikes] = await Promise.all([
+      ids.length ? db('comment_likes').whereIn('comment_id', ids).groupBy('comment_id').select('comment_id', db.raw('COUNT(*) as c')) : Promise.resolve([]),
+      ids.length && req.user?.id ? db('comment_likes').whereIn('comment_id', ids).where({ user_id: req.user.id }) : Promise.resolve([]),
+    ]);
+    const likeMap = new Map(likes.map((l: any) => [l.comment_id, Number(l.c)]));
+    const likedSet = new Set(myLikes.map((l: any) => l.comment_id));
+
     ok(res, {
       comments: rows.map((r: any) => ({
         id: r.id,
         content: r.content,
         createdAt: r.created_at,
+        likes: likeMap.get(r.id) ?? 0,
+        likedByMe: likedSet.has(r.id),
         author: {
           id: r.uid,
           username: r.username,
@@ -430,6 +482,8 @@ postsRouter.post(
           id: typeof id === 'object' ? (id as any).id : id,
           content: body.content,
           createdAt: isoNow(),
+          likes: 0,
+          likedByMe: false,
           author: {
             id: req.user!.id,
             username: req.user!.username,

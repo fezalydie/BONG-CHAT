@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db, isoNow } from '../db.js';
-import { asyncHandler, HttpError, likeQuery, ok } from '../utils/http.js';
+import { asyncHandler, HttpError, likeQuery, ok, parseJson } from '../utils/http.js';
 import { requireAuth } from '../middleware/auth.js';
 import { blockedIds, mapAuthor, mapUser, linkify } from '../utils/users.js';
 import { emitToUser, isOnline } from '../sockets/index.js';
 import { notify } from '../services/notify.js';
+import { findOrCreateDirectConversation } from '../services/conversations.js';
 
 export const messagesRouter = Router();
 
@@ -28,6 +29,9 @@ function mapMessage(row: Record<string, any>) {
     createdAt: row.created_at,
     readAt: row.read_at ?? null,
     parts: linkify(row.content ?? ''),
+    // Story replies carry a snapshot so they still render after the story expires.
+    storyId: row.story_id ?? null,
+    story: parseJson<Record<string, any> | null>(row.story_snapshot, null),
     sender: {
       id: row.uid,
       username: row.username,
@@ -110,34 +114,11 @@ messagesRouter.post(
     const { username } = z.object({ username: z.string().trim().min(1) }).parse(req.body);
     const other = await db('users').where({ username }).first();
     if (!other) throw new HttpError(404, 'User not found.');
-    if (other.id === req.user!.id) throw new HttpError(400, 'You already have the best chat — with yourself.');
-    const blocked = await db('blocks')
-      .where({ blocker_id: other.id, blocked_id: req.user!.id })
-      .orWhere({ blocker_id: req.user!.id, blocked_id: other.id })
-      .first();
-    if (blocked) throw new HttpError(403, 'You cannot message this user.');
-
-    const mine = await db('conversation_participants').where({ user_id: req.user!.id });
-    for (const participation of mine) {
-      const partners = await db('conversation_participants')
-        .where({ conversation_id: participation.conversation_id })
-        .whereNot({ user_id: req.user!.id });
-      if (partners.length === 1 && partners[0].user_id === other.id) {
-        const conversation = await db('conversations').where({ id: participation.conversation_id }).first();
-        return ok(res, { conversationId: conversation.id, existing: true });
-      }
-    }
-
-    const now = isoNow();
-    const [conversationId] = await db('conversations')
-      .insert({ created_at: now, last_message_at: now })
-      .returning('id');
-    const cid = typeof conversationId === 'object' ? (conversationId as any).id : conversationId;
-    await db('conversation_participants').insert([
-      { conversation_id: cid, user_id: req.user!.id },
-      { conversation_id: cid, user_id: other.id },
-    ]);
-    ok(res, { conversationId: cid, existing: false }, 201);
+    const { id: conversationId, existing } = await findOrCreateDirectConversation(
+      req.user!.id,
+      other.id,
+    );
+    ok(res, { conversationId, existing }, existing ? 200 : 201);
   }),
 );
 
@@ -176,6 +157,8 @@ messagesRouter.get(
         'm.sender_id',
         'm.content',
         'm.image_url',
+        'm.story_id',
+        'm.story_snapshot',
         'm.created_at',
         'm.read_at',
         'u.id as uid',
@@ -233,6 +216,8 @@ messagesRouter.post(
       createdAt: now,
       readAt: null,
       parts: linkify(body.content),
+      storyId: null,
+      story: null,
       sender: {
         id: senderRow.id,
         username: senderRow.username,

@@ -230,6 +230,33 @@ test('a post with both a photo and a video keeps only the video', async () => {
   assert.equal(created.json.post.imageUrl, '', 'the photo is dropped when a video is present');
 });
 
+test('profile posts are paginated without gaps or duplicates', async () => {
+  const pagerRes = await register('pager');
+  assert.equal(pagerRes.status, 201);
+  const pager = pagerRes.cookie!;
+
+  for (let i = 1; i <= 12; i += 1) {
+    const created = await call('POST', '/api/posts', {
+      cookie: pager,
+      body: { content: `Paged post ${i}` },
+    });
+    assert.equal(created.status, 201);
+  }
+
+  const first = await call('GET', '/api/posts?username=pager&page=0', { cookie: pager });
+  assert.equal(first.status, 200);
+  assert.equal(first.json.items.length, 10, 'the first page holds 10 posts');
+  assert.equal(first.json.hasMore, true);
+
+  const second = await call('GET', '/api/posts?username=pager&page=1', { cookie: pager });
+  assert.equal(second.status, 200);
+  assert.equal(second.json.items.length, 2, 'the second page holds the remainder');
+  assert.equal(second.json.hasMore, false);
+
+  const ids = [...first.json.items, ...second.json.items].map((i: any) => i.post.id);
+  assert.equal(new Set(ids).size, 12, 'every post appears exactly once across pages');
+});
+
 test('comments can be created and deleted', async () => {
   const created = await call('POST', `/api/posts/${postId}/comments`, {
     cookie: bob,
@@ -281,6 +308,27 @@ test('follow, then block and unblock', async () => {
   assert.equal(unblocked.json.blocked, false);
   const visible = await call('GET', '/api/users/bob', { cookie: alice });
   assert.equal(visible.status, 200);
+});
+
+test('a block hides the profile in both directions', async () => {
+  const jackRes = await register('jack');
+  assert.equal(jackRes.status, 201);
+  const kateRes = await register('kate');
+  assert.equal(kateRes.status, 201);
+
+  // Kate blocks Jack; Jack must no longer see Kate, and Kate cannot see Jack either.
+  const blocked = await call('POST', '/api/users/jack/block', { cookie: kateRes.cookie! });
+  assert.equal(blocked.json.blocked, true);
+
+  const jackSeesKate = await call('GET', '/api/users/kate', { cookie: jackRes.cookie! });
+  assert.equal(jackSeesKate.status, 403, 'the blocked user cannot open the blocker profile');
+
+  const kateSeesJack = await call('GET', '/api/users/jack', { cookie: kateRes.cookie! });
+  assert.equal(kateSeesJack.status, 403, 'the blocker cannot open the blocked profile');
+
+  // Anonymous visitors still see the public profile.
+  const anonymous = await call('GET', '/api/users/kate');
+  assert.equal(anonymous.status, 200);
 });
 
 test('settings round-trip', async () => {
@@ -439,6 +487,101 @@ test('a story can carry a video instead of an image', async () => {
 
   const deleted = await call('DELETE', `/api/stories/${created.json.story.id}`, { cookie: alice });
   assert.equal(deleted.status, 200);
+});
+
+test('replying to a story creates a DM with the story attached', async () => {
+  const created = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: 'Reply target', imageUrl: '/uploads/reply.jpg', style: 'aurora' },
+  });
+  assert.equal(created.status, 201);
+  const storyId = created.json.story.id;
+
+  const replied = await call('POST', `/api/stories/${storyId}/reply`, {
+    cookie: bob,
+    body: { content: 'Love this!' },
+  });
+  assert.equal(replied.status, 201);
+  assert.ok(replied.json.conversationId, 'a conversation is opened');
+  assert.equal(replied.json.message.content, 'Love this!');
+  assert.equal(replied.json.message.story.id, storyId);
+  assert.equal(replied.json.message.story.authorUsername, 'alice');
+  assert.equal(replied.json.message.story.imageUrl, '/uploads/reply.jpg');
+
+  // The author sees the reply as the latest message in their thread.
+  const conversations = await call('GET', '/api/messages/conversations', { cookie: alice });
+  const thread = conversations.json.conversations.find(
+    (c: any) => c.id === replied.json.conversationId,
+  );
+  assert.ok(thread, 'the conversation is listed for the author');
+  assert.equal(thread.lastMessage.content, 'Love this!');
+  assert.equal(thread.lastMessage.story.id, storyId);
+
+  // ...and gets a message notification that mentions the story.
+  const notifications = await call('GET', '/api/notifications', { cookie: alice });
+  assert.ok(
+    notifications.json.notifications.some(
+      (n: any) => n.type === 'message' && String(n.data?.preview).toLowerCase().includes('story'),
+    ),
+    'the author is notified about the story reply',
+  );
+
+  // Reusing the thread: a second reply must not create another conversation.
+  const repliedAgain = await call('POST', `/api/stories/${storyId}/reply`, {
+    cookie: bob,
+    body: { content: 'Again' },
+  });
+  assert.equal(repliedAgain.json.conversationId, replied.json.conversationId);
+
+  // The snapshot keeps the reply readable after the story is gone.
+  await call('DELETE', `/api/stories/${storyId}`, { cookie: alice });
+  const history = await call('GET', `/api/messages/conversations/${replied.json.conversationId}/messages`, {
+    cookie: alice,
+  });
+  const replyMessage = history.json.messages.find((m: any) => m.content === 'Love this!');
+  assert.ok(replyMessage, 'the reply survives story deletion');
+  assert.equal(replyMessage.story.id, storyId, 'the story snapshot is preserved');
+});
+
+test('a story reply is rejected for your own story and for hidden stories', async () => {
+  const own = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: 'Mine', style: 'candy' },
+  });
+  const ownReply = await call('POST', `/api/stories/${own.json.story.id}/reply`, {
+    cookie: alice,
+    body: { content: 'Talking to myself' },
+  });
+  assert.equal(ownReply.status, 400);
+  await call('DELETE', `/api/stories/${own.json.story.id}`, { cookie: alice });
+
+  // A private author's story cannot be replied to until the request is approved.
+  const ninaRes = await register('nina');
+  assert.equal(ninaRes.status, 201);
+  const nina = ninaRes.cookie!;
+  await call('PUT', '/api/settings', { cookie: nina, body: { isPrivate: true } });
+  const privateStory = await call('POST', '/api/stories', {
+    cookie: nina,
+    body: { content: 'Private story', style: 'grape' },
+  });
+  const denied = await call('POST', `/api/stories/${privateStory.json.story.id}/reply`, {
+    cookie: carol,
+    body: { content: 'Let me in' },
+  });
+  assert.equal(denied.status, 403);
+  await call('DELETE', `/api/stories/${privateStory.json.story.id}`, { cookie: nina });
+});
+
+test('the author does not count as a viewer of their own story', async () => {
+  const created = await call('POST', '/api/stories', {
+    cookie: alice,
+    body: { content: 'Self view', style: 'ocean' },
+  });
+  const storyId = created.json.story.id;
+  await call('POST', `/api/stories/${storyId}/view`, { cookie: alice });
+  const single = await call('GET', `/api/stories/${storyId}`, { cookie: alice });
+  assert.equal(single.json.viewers.length, 0, 'author is not in the viewer list');
+  await call('DELETE', `/api/stories/${storyId}`, { cookie: alice });
 });
 
 test('notifications are listed and can be cleared', async () => {
@@ -832,6 +975,13 @@ test('following a private account sends a request until approved', async () => {
   const hiddenFeed = await call('GET', '/api/posts?username=erin', { cookie: carol });
   assert.equal(hiddenFeed.status, 403, 'a pending request grants no content access');
 
+  // A pending requester must not appear as a follower yet.
+  const followersBefore = await call('GET', '/api/users/erin/followers', { cookie: erin });
+  assert.ok(
+    !followersBefore.json.users.some((u: any) => u.username === 'carol'),
+    'pending requests are not followers',
+  );
+
   // Erin sees the waiting request.
   const inbox = await call('GET', '/api/users/requests', { cookie: erin });
   assert.equal(inbox.status, 200);
@@ -848,6 +998,12 @@ test('following a private account sends a request until approved', async () => {
   const visibleFeed = await call('GET', '/api/posts?username=erin', { cookie: carol });
   assert.equal(visibleFeed.status, 200);
   assert.ok(visibleFeed.json.items.some((i: any) => i.post?.id === postId));
+
+  const followersAfter = await call('GET', '/api/users/erin/followers', { cookie: erin });
+  assert.ok(
+    followersAfter.json.users.some((u: any) => u.username === 'carol'),
+    'an approved requester becomes a follower',
+  );
 
   const carolNotifications = await call('GET', '/api/notifications', { cookie: carol });
   assert.ok(

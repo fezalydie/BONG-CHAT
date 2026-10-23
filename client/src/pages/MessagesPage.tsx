@@ -10,6 +10,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
 import { LinkifiedText } from '@/components/common/LinkifiedText'
 import { NewConversationModal } from '@/components/messages/NewConversationModal'
+import { storyGradient } from '@/lib/stories'
 
 dayjs.extend(relativeTime)
 
@@ -448,9 +449,56 @@ export function MessagesPage() {
                 )}
                 {messages.map((m) => {
                   const mine = m.sender.id === user?.id
+                  const storyLabel = !m.story
+                    ? ''
+                    : mine
+                      ? 'You replied to a story'
+                      : m.story.authorId === user?.id
+                        ? 'Replied to your story'
+                        : `Replied to @${m.story.authorUsername}'s story`
                   return (
                     <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] rounded-3xl px-4 py-2 text-sm ${mine ? 'bg-brand-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                        {m.story && (
+                          <div
+                            className={`mb-2 flex items-center gap-2 rounded-2xl p-2 ${
+                              mine ? 'bg-white/15' : 'bg-white dark:bg-slate-900/60'
+                            }`}
+                          >
+                            {m.story.imageUrl ? (
+                              <img
+                                src={m.story.imageUrl}
+                                alt="Story"
+                                className="h-12 w-12 shrink-0 rounded-xl object-cover"
+                              />
+                            ) : m.story.videoUrl ? (
+                              <video
+                                src={m.story.videoUrl}
+                                muted
+                                preload="metadata"
+                                className="h-12 w-12 shrink-0 rounded-xl object-cover"
+                              />
+                            ) : (
+                              <div
+                                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-[10px] font-semibold text-white ${storyGradient(m.story.style)}`}
+                              >
+                                Story
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-semibold">{storyLabel}</div>
+                              {m.story.content && (
+                                <div
+                                  className={`truncate text-[11px] ${
+                                    mine ? 'text-white/70' : 'text-slate-500 dark:text-slate-400'
+                                  }`}
+                                >
+                                  {m.story.content}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {m.imageUrl && (
                           <img
                             src={m.imageUrl}

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Post, Comment } from '@/types/post'
 import { PostCard } from '@/components/posts/PostCard'
-import { Send, Trash2, Loader2 } from 'lucide-react'
+import { Heart, Send, Trash2, Loader2 } from 'lucide-react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useToast } from '@/components/common/Toast'
@@ -56,6 +56,32 @@ export function PostPage() {
       setContent('')
     } catch (err: any) {
       toast.push({ title: 'Failed', description: err.message, type: 'error' })
+    }
+  }
+
+  const toggleCommentLike = async (commentId: number) => {
+    if (!id) return
+    setComments((prev) =>
+      prev.map((c) => {
+        if (c.id !== commentId) return c
+        const liked = !c.likedByMe
+        return { ...c, likedByMe: liked, likes: liked ? c.likes + 1 : Math.max(0, c.likes - 1) }
+      }),
+    )
+    try {
+      const data = await api<any>(`/posts/${id}/comments/${commentId}/like`, { method: 'POST' })
+      setComments((prev) =>
+        prev.map((c) => (c.id !== commentId ? c : { ...c, likes: data.likes, likedByMe: data.likedByMe })),
+      )
+    } catch (err: any) {
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id !== commentId) return c
+          const liked = !c.likedByMe
+          return { ...c, likedByMe: !liked, likes: liked ? Math.max(0, c.likes - 1) : c.likes + 1 }
+        }),
+      )
+      toast.push({ title: 'Could not like comment', description: err.message, type: 'error' })
     }
   }
 

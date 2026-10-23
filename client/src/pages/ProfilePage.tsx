@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { PublicUser, ViewerFlags, UserStats } from '@/types/user'
@@ -28,15 +28,44 @@ export function ProfilePage() {
   const [messaging, setMessaging] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Posts are paged by the API (10 per page); the list loads more on scroll.
+  const [postPage, setPostPage] = useState(0)
+  const [hasMorePosts, setHasMorePosts] = useState(false)
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false)
+  const postsSentinelRef = useRef<HTMLDivElement | null>(null)
+  const postsBusyRef = useRef(false)
+  // Which profile the currently loaded posts belong to (guards late responses).
+  const currentUsernameRef = useRef<string | null>(null)
   const isMe = !username || username === user?.username
 
-  const loadPosts = async (uname: string) => {
+  const loadPosts = async (uname: string, page = 0, append = false) => {
     try {
-      const p = await api<any>(`/posts?username=${uname}`)
-      setPosts(p.items.filter((i: any) => i.kind === 'post').map((i: any) => i.post))
+      const p = await api<any>(`/posts?username=${encodeURIComponent(uname)}&page=${page}`)
+      if (currentUsernameRef.current !== uname) return
+      const items = p.items.filter((i: any) => i.kind === 'post').map((i: any) => i.post)
+      setPosts((prev) => {
+        if (!append) return items
+        const seen = new Set(prev.map((post) => post.id))
+        return [...prev, ...items.filter((post: Post) => !seen.has(post.id))]
+      })
+      setPostPage(page)
+      setHasMorePosts(Boolean(p.hasMore))
     } catch {
       // Private accounts hide their posts from non-followers; the lock panel explains why.
-      setPosts([])
+      if (!append && currentUsernameRef.current === uname) {
+        setPosts([])
+        setHasMorePosts(false)
+      }
+    }
+  }
+
+  const loadMorePosts = async () => {
+    if (!profile || !hasMorePosts || loadingMorePosts) return
+    setLoadingMorePosts(true)
+    try {
+      await loadPosts(profile.username, postPage + 1, true)
+    } finally {
+      setLoadingMorePosts(false)
     }
   }
 
@@ -53,14 +82,18 @@ export function ProfilePage() {
   const load = async () => {
     const uname = username || user?.username
     if (!uname) return
+    currentUsernameRef.current = uname
     setLoading(true)
+    setPosts([])
+    setPostPage(0)
+    setHasMorePosts(false)
     try {
       const data = await api<any>(`/users/${uname}`)
       setProfile(data.user)
       setStats(data.stats)
       setViewer(data.viewer)
       setError(null)
-      await Promise.all([loadPosts(uname), loadReels(uname)])
+      await Promise.all([loadPosts(uname, 0, false), loadReels(uname)])
     } catch (err: any) {
       setProfile(null)
       setError(err?.message || 'Could not load this profile.')
@@ -73,6 +106,26 @@ export function ProfilePage() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, user?.id])
+
+  // Infinite scroll: the profile only fetches 10 posts at a time.
+  useEffect(() => {
+    if (tab !== 'posts' || !hasMorePosts) return
+    const node = postsSentinelRef.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting || postsBusyRef.current) return
+        postsBusyRef.current = true
+        void loadMorePosts().finally(() => {
+          postsBusyRef.current = false
+        })
+      },
+      { rootMargin: '400px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, hasMorePosts, postPage, loadingMorePosts, profile?.username])
 
   const follow = async () => {
     if (!profile) return
@@ -91,10 +144,12 @@ export function ProfilePage() {
           : v,
       )
       setStats((s) => ({ ...s, followers: data.followers }))
-      if (canViewNow) await Promise.all([loadPosts(profile.username), loadReels(profile.username)])
-      else {
+      if (canViewNow) {
+        await Promise.all([loadPosts(profile.username, 0, false), loadReels(profile.username)])
+      } else {
         setPosts([])
         setReels([])
+        setHasMorePosts(false)
       }
       if (data.requested) {
         toast.push({ title: 'Request sent', description: 'They will see it and can approve it.' })
@@ -281,6 +336,24 @@ export function ProfilePage() {
                   onDeleted={removePost}
                 />
               ))}
+
+            {tab === 'posts' && posts.length > 0 && (
+              <div
+                ref={postsSentinelRef}
+                className="flex flex-col items-center justify-center gap-1 py-3 text-xs text-slate-400"
+              >
+                {loadingMorePosts ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading more posts…
+                  </>
+                ) : hasMorePosts ? (
+                  <span>Scroll for more posts</span>
+                ) : (
+                  <span>You're all caught up.</span>
+                )}
+              </div>
+            )}
 
             {tab === 'posts' && posts.length === 0 && (
               <div className="surface p-8 text-center text-sm text-slate-500 dark:text-slate-400">

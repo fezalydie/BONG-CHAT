@@ -288,6 +288,7 @@ usersRouter.get(
     const rows = await db('follows')
       .join('users', 'users.id', 'follows.follower_id')
       .where('follows.follow_id', target.id)
+      .where('follows.status', 'accepted')
       .select('users.*')
       .limit(100);
     ok(res, { users: rows.map(mapUser) });
@@ -306,6 +307,7 @@ usersRouter.get(
     const rows = await db('follows')
       .join('users', 'users.id', 'follows.follow_id')
       .where('follows.follower_id', target.id)
+      .where('follows.status', 'accepted')
       .select('users.*')
       .limit(100);
     ok(res, { users: rows.map(mapUser) });
