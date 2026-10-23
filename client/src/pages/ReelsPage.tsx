@@ -170,6 +170,7 @@ export function ReelsPage() {
   const [page, setPage] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const viewed = useRef(new Set<number>())
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
@@ -191,7 +192,13 @@ export function ReelsPage() {
       const data = await api<{ items: Reel[]; hasMore: boolean }>(
         `/reels?page=${p}${filterUser ? `&username=${encodeURIComponent(filterUser)}` : ''}`,
       )
-      setReels((prev) => (reset ? data.items : [...prev, ...data.items]))
+      setReels((prev) => {
+        if (reset) return data.items
+        // Deduplicate: a reel published between two page loads shifts the
+        // offset, so the same item can otherwise arrive twice.
+        const seen = new Set(prev.map((reel) => reel.id))
+        return [...prev, ...data.items.filter((reel) => !seen.has(reel.id))]
+      })
       setHasMore(data.hasMore)
       setPage(reset ? 1 : p + 1)
       setError(null)
@@ -212,6 +219,28 @@ export function ReelsPage() {
     void load(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUser])
+
+  useEffect(() => {
+    // Arrow keys (and j/k) move one reel at a time, like a presentation.
+    const onKey = (event: KeyboardEvent) => {
+      if (commentsFor || showCreate) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+      }
+      const scroller = scrollerRef.current
+      if (!scroller) return
+      if (event.key === 'ArrowDown' || event.key === 'j') {
+        event.preventDefault()
+        scroller.scrollBy({ top: scroller.clientHeight, behavior: 'smooth' })
+      } else if (event.key === 'ArrowUp' || event.key === 'k') {
+        event.preventDefault()
+        scroller.scrollBy({ top: -scroller.clientHeight, behavior: 'smooth' })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [commentsFor, showCreate])
 
   const registerView = useCallback((id: number) => {
     if (viewed.current.has(id)) return
@@ -375,7 +404,7 @@ export function ReelsPage() {
           )}
         </div>
       ) : (
-        <div className="flex-1 snap-y snap-mandatory overflow-y-auto rounded-3xl">
+        <div ref={scrollerRef} className="flex-1 snap-y snap-mandatory overflow-y-auto rounded-3xl">
           {reels.map((reel) => (
             <div key={reel.id} className="h-full snap-start p-0.5">
               <ReelCard
