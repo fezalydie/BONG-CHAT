@@ -21,6 +21,8 @@ export interface AuthUser extends PublicUser {
 export interface ViewerFlags {
   isMe: boolean
   isFollowing: boolean
+  /** An outgoing request waiting for a private account to approve it. */
+  isRequested: boolean
   isFollowedBy: boolean
   isBlocked: boolean
   canViewContent: boolean

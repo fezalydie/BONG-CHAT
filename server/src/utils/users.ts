@@ -39,6 +39,8 @@ export function mapAuthor(row: Record<string, any>): PublicUser {
 /** Relationship of the viewer towards the profile owner. */
 export interface ViewerFlags {  isMe: boolean;
   isFollowing: boolean;
+  /** An outgoing request waiting for a private account to approve it. */
+  isRequested: boolean;
   isFollowedBy: boolean;
   isBlocked: boolean;
 }
@@ -48,6 +50,7 @@ export async function viewerFlags(viewerId: number | undefined, ownerId: number)
     return {
       isMe: Boolean(viewerId) && viewerId === ownerId,
       isFollowing: false,
+      isRequested: false,
       isFollowedBy: false,
       isBlocked: false,
     };
@@ -59,8 +62,9 @@ export async function viewerFlags(viewerId: number | undefined, ownerId: number)
   ]);
   return {
     isMe: false,
-    isFollowing: Boolean(follow),
-    isFollowedBy: Boolean(reverse),
+    isFollowing: Boolean(follow) && follow.status === 'accepted',
+    isRequested: Boolean(follow) && follow.status === 'pending',
+    isFollowedBy: Boolean(reverse) && reverse.status === 'accepted',
     isBlocked: Boolean(block),
   };
 }
@@ -69,7 +73,8 @@ export async function viewerFlags(viewerId: number | undefined, ownerId: number)
  * Can the viewer see this user's content?
  *  - the owner always can
  *  - public accounts are visible to everyone
- *  - private accounts are visible only to followers (anonymous visitors see nothing)
+ *  - private accounts are visible only to *accepted* followers
+ *    (a pending request grants nothing until approved)
  *  - blocked users see nothing of each other
  */
 export async function canViewContent(viewerId: number | undefined, ownerId: number): Promise<boolean> {
@@ -85,7 +90,9 @@ export async function canViewContent(viewerId: number | undefined, ownerId: numb
   }
   if (!bool(owner.is_private)) return true;
   if (!viewerId) return false;
-  const follow = await db('follows').where({ follower_id: viewerId, follow_id: ownerId }).first();
+  const follow = await db('follows')
+    .where({ follower_id: viewerId, follow_id: ownerId, status: 'accepted' })
+    .first();
   return Boolean(follow);
 }
 
@@ -106,7 +113,7 @@ export async function blockedIds(viewerId: number): Promise<number[]> {
 /** Ids the viewer is allowed to read (self + accepted follows), minus blocked users. */
 export async function feedAuthorIds(viewerId: number): Promise<number[]> {
   const [follows, hidden] = await Promise.all([
-    db('follows').where({ follower_id: viewerId }).select('follow_id'),
+    db('follows').where({ follower_id: viewerId, status: 'accepted' }).select('follow_id'),
     blockedIds(viewerId),
   ]);
   const ids = new Set<number>([viewerId, ...follows.map((f) => f.follow_id)]);

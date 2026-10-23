@@ -20,7 +20,15 @@ export interface StoryGroup {
 
 export interface Notification {
   id: number
-  type: 'like' | 'comment' | 'follow' | 'share' | 'message' | 'system'
+  type:
+    | 'like'
+    | 'comment'
+    | 'follow'
+    | 'follow_request'
+    | 'follow_accepted'
+    | 'share'
+    | 'message'
+    | 'system'
   entityId?: number | null
   link: string
   read: boolean

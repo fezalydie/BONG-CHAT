@@ -64,12 +64,24 @@ export function ProfilePage() {
     if (!profile) return
     try {
       const data = await api<any>(`/users/${profile.username}/follow`, { method: 'POST' })
+      // A private account turns the follow into a request: no content access yet.
       const canViewNow = !profile.isPrivate || data.following
-      setViewer((v) => (v ? { ...v, isFollowing: data.following, canViewContent: canViewNow } : v))
+      setViewer((v) =>
+        v
+          ? {
+              ...v,
+              isFollowing: Boolean(data.following),
+              isRequested: Boolean(data.requested),
+              canViewContent: canViewNow,
+            }
+          : v,
+      )
       setStats((s) => ({ ...s, followers: data.followers }))
-      // Following a private account unlocks its timeline immediately.
       if (canViewNow) await loadPosts(profile.username)
       else setPosts([])
+      if (data.requested) {
+        toast.push({ title: 'Request sent', description: 'They will see it and can approve it.' })
+      }
     } catch (err: any) {
       toast.push({ title: 'Error', description: err.message, type: 'error' })
     }
@@ -188,7 +200,7 @@ export function ProfilePage() {
             ) : (
               <>
                 <button className="btn-ghost" onClick={follow}>
-                  {viewer?.isFollowing ? 'Unfollow' : 'Follow'}
+                  {viewer?.isFollowing ? 'Unfollow' : viewer?.isRequested ? 'Requested' : 'Follow'}
                 </button>
                 <button className="btn-ghost" onClick={() => void message()} disabled={messaging}>
                   {messaging ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
@@ -209,7 +221,11 @@ export function ProfilePage() {
           <div className="surface flex flex-col items-center gap-2 p-8 text-center">
             <Lock className="h-8 w-8 text-slate-400" />
             <div className="text-lg font-semibold">This account is private</div>
-            <div className="text-sm text-slate-500 dark:text-slate-400">Follow to see their posts and stories</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              {viewer.isRequested
+                ? 'Follow request sent — their posts appear once they approve.'
+                : 'Send a follow request to see their posts and stories.'}
+            </div>
           </div>
         )}
         {viewer && viewer.canViewContent &&

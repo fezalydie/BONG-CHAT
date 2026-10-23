@@ -42,8 +42,8 @@ usersRouter.get(
     const row = await db('users').where({ id: req.user!.id }).first();
     const [posts, followers, following] = await Promise.all([
       db('posts').where({ user_id: row.id }).count('* as c').first(),
-      db('follows').where({ follow_id: row.id }).count('* as c').first(),
-      db('follows').where({ follower_id: row.id }).count('* as c').first(),
+      db('follows').where({ follow_id: row.id, status: 'accepted' }).count('* as c').first(),
+      db('follows').where({ follower_id: row.id, status: 'accepted' }).count('* as c').first(),
     ]);
     ok(res, {
       user: {
@@ -89,6 +89,25 @@ usersRouter.get(
   }),
 );
 
+/** Incoming follow requests waiting for the signed-in (private) account. */
+usersRouter.get(
+  '/requests',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const rows = await db('follows as f')
+      .join('users as u', 'u.id', 'f.follower_id')
+      .where({ 'f.follow_id': req.user!.id, 'f.status': 'pending' })
+      .select('u.*', 'f.created_at as requested_at')
+      .orderBy('f.created_at', 'desc');
+    ok(res, {
+      requests: rows.map((row: any) => ({
+        user: mapUser(row),
+        requestedAt: row.requested_at,
+      })),
+    });
+  }),
+);
+
 /** Public profile. */
 usersRouter.get(
   '/:username',
@@ -101,13 +120,21 @@ usersRouter.get(
     const visible = await canViewContent(req.user?.id, row.id);
     const [posts, followers, following] = await Promise.all([
       db('posts').where({ user_id: row.id }).count('* as c').first(),
-      db('follows').where({ follow_id: row.id }).count('* as c').first(),
-      db('follows').where({ follower_id: row.id }).count('* as c').first(),
+      db('follows').where({ follow_id: row.id, status: 'accepted' }).count('* as c').first(),
+      db('follows').where({ follower_id: row.id, status: 'accepted' }).count('* as c').first(),
     ]);
     const [followRequest, pendingRequest] = await Promise.all([
-      req.user?.id ? db('follows').where({ follower_id: req.user.id, follow_id: row.id }).first() : undefined,
-      req.user?.id ? db('follows').where({ follower_id: row.id, follow_id: req.user.id }).first() : undefined,
+      req.user?.id
+        ? db('follows').where({ follower_id: req.user.id, follow_id: row.id }).first()
+        : undefined,
+      req.user?.id
+        ? db('follows')
+            .where({ follower_id: row.id, follow_id: req.user.id, status: 'accepted' })
+            .first()
+        : undefined,
     ]);
+    const outgoingAccepted = Boolean(followRequest) && followRequest.status === 'accepted';
+    const outgoingPending = Boolean(followRequest) && followRequest.status === 'pending';
     ok(res, {
       user: mapUser(row),
       stats: {
@@ -117,7 +144,8 @@ usersRouter.get(
       },
       viewer: {
         isMe: flags.isMe,
-        isFollowing: Boolean(followRequest),
+        isFollowing: outgoingAccepted,
+        isRequested: outgoingPending,
         isFollowedBy: Boolean(pendingRequest),
         isBlocked: flags.isBlocked,
         canViewContent: visible,
@@ -126,7 +154,7 @@ usersRouter.get(
   }),
 );
 
-/** Follow / unfollow. Private accounts expose posts to followers only. */
+/** Follow / unfollow. Following a private account sends a request instead. */
 usersRouter.post(
   '/:username/follow',
   requireAuth,
@@ -137,26 +165,84 @@ usersRouter.post(
     const existing = await db('follows')
       .where({ follower_id: req.user!.id, follow_id: target.id })
       .first();
+
+    // Toggle off: unfollow an accepted follow, or cancel a pending request.
     if (existing) {
       await db('follows').where({ id: existing.id }).del();
     } else {
+      const needsApproval = bool(target.is_private);
       await db('follows').insert({
         follower_id: req.user!.id,
         follow_id: target.id,
+        status: needsApproval ? 'pending' : 'accepted',
         created_at: isoNow(),
       });
-      await notify({
-        userId: target.id,
-        actorId: req.user!.id,
-        type: 'follow',
-        link: `/profile/${req.user!.username}`,
-      });
+      if (needsApproval) {
+        await notify({
+          userId: target.id,
+          actorId: req.user!.id,
+          type: 'follow_request',
+          link: `/profile/${req.user!.username}`,
+        });
+      } else {
+        await notify({
+          userId: target.id,
+          actorId: req.user!.id,
+          type: 'follow',
+          link: `/profile/${req.user!.username}`,
+        });
+      }
     }
-    const followers = await db('follows').where({ follow_id: target.id }).count('* as c').first();
+
+    const followers = await db('follows')
+      .where({ follow_id: target.id, status: 'accepted' })
+      .count('* as c')
+      .first();
     ok(res, {
-      following: !existing,
+      following: !existing && !bool(target.is_private),
+      requested: !existing && bool(target.is_private),
       followers: Number((followers as any)?.c ?? 0),
     });
+  }),
+);
+
+/** Approve a pending follow request addressed to the signed-in user. */
+usersRouter.post(
+  '/requests/:username/accept',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const requester = await db('users').where({ username: req.params.username }).first();
+    if (!requester) throw new HttpError(404, 'User not found.');
+    const request = await db('follows')
+      .where({ follower_id: requester.id, follow_id: req.user!.id, status: 'pending' })
+      .first();
+    if (!request) throw new HttpError(404, 'No pending request from this user.');
+    await db('follows').where({ id: request.id }).update({ status: 'accepted' });
+    await notify({
+      userId: requester.id,
+      actorId: req.user!.id,
+      type: 'follow_accepted',
+      link: `/profile/${req.user!.username}`,
+    });
+    const followers = await db('follows')
+      .where({ follow_id: req.user!.id, status: 'accepted' })
+      .count('* as c')
+      .first();
+    ok(res, { accepted: true, followers: Number((followers as any)?.c ?? 0) });
+  }),
+);
+
+/** Decline (delete) a pending follow request addressed to the signed-in user. */
+usersRouter.post(
+  '/requests/:username/reject',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const requester = await db('users').where({ username: req.params.username }).first();
+    if (!requester) throw new HttpError(404, 'User not found.');
+    const deleted = await db('follows')
+      .where({ follower_id: requester.id, follow_id: req.user!.id, status: 'pending' })
+      .del();
+    ok(res, { rejected: deleted > 0 });
   }),
 );
 

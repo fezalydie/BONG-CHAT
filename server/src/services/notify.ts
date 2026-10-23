@@ -4,7 +4,15 @@ import { emitToUser } from '../sockets/index.js';
 export interface NotifyInput {
   userId: number;
   actorId?: number | null;
-  type: 'like' | 'comment' | 'follow' | 'share' | 'message' | 'system';
+  type:
+    | 'like'
+    | 'comment'
+    | 'follow'
+    | 'follow_request'
+    | 'follow_accepted'
+    | 'share'
+    | 'message'
+    | 'system';
   entityId?: number | null;
   link?: string;
   data?: Record<string, unknown>;
@@ -30,7 +38,7 @@ export async function notify(input: NotifyInput): Promise<void> {
       ? 'likes'
       : input.type === 'comment'
         ? 'comments'
-        : input.type === 'follow'
+        : input.type === 'follow' || input.type === 'follow_request' || input.type === 'follow_accepted'
           ? 'follows'
           : input.type === 'share'
             ? 'shares'

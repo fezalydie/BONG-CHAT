@@ -768,8 +768,10 @@ test('reposts never expose posts from accounts the viewer cannot see', async () 
   assert.equal(created.status, 201);
   const postId = created.json.post.id;
 
-  // Bob follows Dave, so he can see (and repost) the private post.
+  // Bob requests to follow Dave; Dave approves, so Bob can see the private post.
   await call('POST', '/api/users/dave/follow', { cookie: bob });
+  const approved = await call('POST', '/api/users/requests/bob/accept', { cookie: dave });
+  assert.equal(approved.status, 200);
   const shared = await call('POST', `/api/posts/${postId}/share`, {
     cookie: bob,
     body: { note: '' },
@@ -800,6 +802,117 @@ test('reposts never expose posts from accounts the viewer cannot see', async () 
     publicFeed.json.items.some((item: any) => item.kind === 'share' && item.post.id === postId),
     'a public repost is visible to everyone who follows the sharer',
   );
+});
+
+test('following a private account sends a request until approved', async () => {
+  const erinRes = await register('erin');
+  assert.equal(erinRes.status, 201);
+  const erin = erinRes.cookie!;
+
+  await call('PUT', '/api/settings', { cookie: erin, body: { isPrivate: true } });
+  const created = await call('POST', '/api/posts', {
+    cookie: erin,
+    body: { content: 'erin secret' },
+  });
+  assert.equal(created.status, 201);
+  const postId = created.json.post.id;
+
+  // Carol asks to follow: this is a request, not a follow.
+  const requested = await call('POST', '/api/users/erin/follow', { cookie: carol });
+  assert.equal(requested.status, 200);
+  assert.equal(requested.json.following, false, 'a private follow is not live yet');
+  assert.equal(requested.json.requested, true);
+
+  const profile = await call('GET', '/api/users/erin', { cookie: carol });
+  assert.equal(profile.json.viewer.isRequested, true);
+  assert.equal(profile.json.viewer.isFollowing, false);
+  assert.equal(profile.json.viewer.canViewContent, false);
+  assert.equal(profile.json.stats.posts, 0, 'a private account hides its post count');
+
+  const hiddenFeed = await call('GET', '/api/posts?username=erin', { cookie: carol });
+  assert.equal(hiddenFeed.status, 403, 'a pending request grants no content access');
+
+  // Erin sees the waiting request.
+  const inbox = await call('GET', '/api/users/requests', { cookie: erin });
+  assert.equal(inbox.status, 200);
+  assert.ok(inbox.json.requests.some((r: any) => r.user.username === 'carol'));
+
+  // Approving grants access and notifies the requester.
+  const accepted = await call('POST', '/api/users/requests/carol/accept', { cookie: erin });
+  assert.equal(accepted.status, 200);
+  const profileAfter = await call('GET', '/api/users/erin', { cookie: carol });
+  assert.equal(profileAfter.json.viewer.isFollowing, true);
+  assert.equal(profileAfter.json.viewer.isRequested, false);
+  assert.equal(profileAfter.json.viewer.canViewContent, true);
+
+  const visibleFeed = await call('GET', '/api/posts?username=erin', { cookie: carol });
+  assert.equal(visibleFeed.status, 200);
+  assert.ok(visibleFeed.json.items.some((i: any) => i.post?.id === postId));
+
+  const carolNotifications = await call('GET', '/api/notifications', { cookie: carol });
+  assert.ok(
+    carolNotifications.json.notifications.some((n: any) => n.type === 'follow_accepted'),
+    'the requester is told their request was approved',
+  );
+
+  // Unfollowing a private account revokes access again.
+  const unfollow = await call('POST', '/api/users/erin/follow', { cookie: carol });
+  assert.equal(unfollow.json.following, false);
+  const profileFinal = await call('GET', '/api/users/erin', { cookie: carol });
+  assert.equal(profileFinal.json.viewer.canViewContent, false);
+});
+
+test('a rejected follow request grants no access', async () => {
+  const fionaRes = await register('fiona');
+  assert.equal(fionaRes.status, 201);
+  const fiona = fionaRes.cookie!;
+  await call('PUT', '/api/settings', { cookie: fiona, body: { isPrivate: true } });
+
+  await call('POST', '/api/users/fiona/follow', { cookie: carol });
+  const rejected = await call('POST', '/api/users/requests/carol/reject', { cookie: fiona });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.json.rejected, true);
+
+  // The request is gone, so nothing is pending and nothing is visible.
+  const inbox = await call('GET', '/api/users/requests', { cookie: fiona });
+  assert.equal(inbox.json.requests.length, 0);
+
+  const profile = await call('GET', '/api/users/fiona', { cookie: carol });
+  assert.equal(profile.json.viewer.isRequested, false);
+  assert.equal(profile.json.viewer.canViewContent, false);
+});
+
+test('going public approves any pending follow request', async () => {
+  const hanaRes = await register('hana');
+  assert.equal(hanaRes.status, 201);
+  const hana = hanaRes.cookie!;
+  await call('PUT', '/api/settings', { cookie: hana, body: { isPrivate: true } });
+
+  const requested = await call('POST', '/api/users/hana/follow', { cookie: carol });
+  assert.equal(requested.json.requested, true);
+
+  // Switching to public promotes the waiting request to a real follow.
+  await call('PUT', '/api/settings', { cookie: hana, body: { isPrivate: false } });
+  const profile = await call('GET', '/api/users/hana', { cookie: carol });
+  assert.equal(profile.json.viewer.isFollowing, true);
+  assert.equal(profile.json.viewer.isRequested, false);
+  assert.equal(profile.json.viewer.canViewContent, true);
+});
+
+test('a private account cannot have its request approved by anyone but its owner', async () => {
+  const ginaRes = await register('gina');
+  assert.equal(ginaRes.status, 201);
+  const gina = ginaRes.cookie!;
+  await call('PUT', '/api/settings', { cookie: gina, body: { isPrivate: true } });
+
+  await call('POST', '/api/users/gina/follow', { cookie: carol });
+  // Bob is not the owner of the request, so there is nothing of his to approve.
+  const attempt = await call('POST', '/api/users/requests/carol/accept', { cookie: bob });
+  assert.equal(attempt.status, 404);
+
+  const profile = await call('GET', '/api/users/gina', { cookie: carol });
+  assert.equal(profile.json.viewer.canViewContent, false, 'access stays closed');
+  assert.equal(profile.json.viewer.isRequested, true, 'the request is still pending');
 });
 
 test('the password reset flow issues a usable, single-use token', async () => {

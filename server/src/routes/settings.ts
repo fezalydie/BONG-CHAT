@@ -65,6 +65,13 @@ settingsRouter.put(
     if (Object.keys(patch).length > 0) {
       await db('users').where({ id: req.user!.id }).update(patch);
     }
+    // Going public auto-approves anyone whose request was pending, so they are
+    // not stuck in limbo behind a request that no longer needs approval.
+    if (body.isPrivate === false) {
+      await db('follows')
+        .where({ follow_id: req.user!.id, status: 'pending' })
+        .update({ status: 'accepted' });
+    }
     const fresh = await db('users').where({ id: req.user!.id }).first();
     ok(res, {
       settings: {
