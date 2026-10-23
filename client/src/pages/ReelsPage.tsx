@@ -183,6 +183,7 @@ export function ReelsPage() {
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [postingComment, setPostingComment] = useState(false)
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null)
 
   const load = async (reset = false) => {
     const p = reset ? 0 : page
@@ -315,6 +316,34 @@ export function ReelsPage() {
     }
   }
 
+  const removeComment = async (comment: ReelComment) => {
+    if (!commentsFor || deletingCommentId !== null) return
+    const reelId = commentsFor.id
+    setDeletingCommentId(comment.id)
+    try {
+      await api(`/reels/${reelId}/comments/${comment.id}`, { method: 'DELETE' })
+      setComments((prev) => prev.filter((c) => c.id !== comment.id))
+      setReels((prev) =>
+        prev.map((r) => (r.id === reelId ? { ...r, comments: Math.max(0, r.comments - 1) } : r)),
+      )
+      setCommentsFor((prev) => (prev ? { ...prev, comments: Math.max(0, prev.comments - 1) } : prev))
+    } catch (err: any) {
+      toast.push({ title: 'Could not delete comment', description: err?.message, type: 'error' })
+    } finally {
+      setDeletingCommentId(null)
+    }
+  }
+
+  // The comments drawer is not the shared Modal, so Escape has to be wired here.
+  useEffect(() => {
+    if (!commentsFor) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCommentsFor(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [commentsFor])
+
   const uploadVideo = async (file: File) => {
     setUploading(true)
     try {
@@ -353,6 +382,9 @@ export function ReelsPage() {
       setPublishing(false)
     }
   }
+
+  // The reel's author and each comment's author may remove a comment (server rule).
+  const canManageComments = commentsFor?.author.id === user?.id
 
   return (
     <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-2xl flex-col lg:h-[calc(100vh-2rem)]">
@@ -514,7 +546,7 @@ export function ReelsPage() {
                       className="h-9 w-9 rounded-full object-cover"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
+                      <div className="flex items-center gap-2">
                         <Link
                           to={`/profile/${comment.author.username}`}
                           className="text-sm font-semibold hover:underline"
@@ -522,6 +554,21 @@ export function ReelsPage() {
                           {comment.author.username}
                         </Link>
                         <span className="text-xs text-slate-400">{dayjs(comment.createdAt).fromNow()}</span>
+                        {(canManageComments || comment.author.id === user?.id) && (
+                          <button
+                            className="text-slate-400 transition hover:text-rose-500 disabled:opacity-50"
+                            title="Delete comment"
+                            aria-label="Delete comment"
+                            disabled={deletingCommentId === comment.id}
+                            onClick={() => void removeComment(comment)}
+                          >
+                            {deletingCommentId === comment.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
                       </div>
                       <p className="break-words text-sm text-slate-700 dark:text-slate-200">{comment.content}</p>
                     </div>
