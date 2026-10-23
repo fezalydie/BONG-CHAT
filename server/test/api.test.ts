@@ -989,6 +989,27 @@ test('reels can be published, listed, liked, viewed, commented on and deleted', 
   assert.ok(!after.json.items.some((r: any) => r.id === reelId));
 });
 
+test('the reel feed honours a page limit', async () => {
+  const first = await call('POST', '/api/reels', {
+    cookie: alice,
+    body: { videoUrl: '/uploads/limit-a.mp4', caption: 'a' },
+  });
+  const second = await call('POST', '/api/reels', {
+    cookie: alice,
+    body: { videoUrl: '/uploads/limit-b.mp4', caption: 'b' },
+  });
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+
+  const page = await call('GET', '/api/reels?username=alice&limit=1', { cookie: alice });
+  assert.equal(page.status, 200);
+  assert.equal(page.json.items.length, 1);
+  assert.equal(page.json.hasMore, true);
+
+  await call('DELETE', `/api/reels/${first.json.reel.id}`, { cookie: alice });
+  await call('DELETE', `/api/reels/${second.json.reel.id}`, { cookie: alice });
+});
+
 test('reels from private accounts stay hidden from non-followers', async () => {
   await call('PUT', '/api/settings', { cookie: carol, body: { isPrivate: true } });
   const created = await call('POST', '/api/reels', {

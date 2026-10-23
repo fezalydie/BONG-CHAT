@@ -93,6 +93,8 @@ reelsRouter.get(
     const viewerId = req.user?.id;
     const username = typeof req.query.username === 'string' ? req.query.username : undefined;
     const page = Math.max(0, Number(req.query.page ?? 0) || 0);
+    // Profile grids ask for a larger page; the player sticks to the default.
+    const take = Math.min(30, Math.max(1, Number(req.query.limit ?? PAGE_SIZE) || PAGE_SIZE));
 
     let authorIds: number[];
     if (username) {
@@ -120,11 +122,11 @@ reelsRouter.get(
       .select(reelColumns)
       .orderBy('r.created_at', 'desc')
       .orderBy('r.id', 'desc')
-      .limit(PAGE_SIZE + 1)
-      .offset(page * PAGE_SIZE);
+      .limit(take + 1)
+      .offset(page * take);
 
-    const hasMore = rows.length > PAGE_SIZE;
-    const items = await decorateReels(rows.slice(0, PAGE_SIZE), viewerId);
+    const hasMore = rows.length > take;
+    const items = await decorateReels(rows.slice(0, take), viewerId);
     ok(res, { items, hasMore });
   }),
 );

@@ -3,11 +3,13 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { PublicUser, ViewerFlags, UserStats } from '@/types/user'
 import type { Post } from '@/types/post'
+import type { Reel } from '@/types/reel'
 import { PostCard } from '@/components/posts/PostCard'
 import { Modal } from '@/components/common/Modal'
-import { Edit3, Lock, Loader2, MessageCircle, ShieldOff } from 'lucide-react'
+import { Edit3, Eye, Heart, Lock, Loader2, MessageCircle, Play, ShieldOff } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/common/Toast'
+import { cn } from '@/utils/cn'
 
 export function ProfilePage() {
   const { username } = useParams<{ username: string }>()
@@ -18,6 +20,8 @@ export function ProfilePage() {
   const [stats, setStats] = useState<UserStats>({ posts: 0, followers: 0, following: 0 })
   const [viewer, setViewer] = useState<ViewerFlags | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
+  const [reels, setReels] = useState<Reel[]>([])
+  const [tab, setTab] = useState<'posts' | 'reels'>('posts')
   const [listKind, setListKind] = useState<'followers' | 'following' | null>(null)
   const [listUsers, setListUsers] = useState<PublicUser[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -36,6 +40,16 @@ export function ProfilePage() {
     }
   }
 
+  const loadReels = async (uname: string) => {
+    try {
+      const data = await api<{ items: Reel[] }>(`/reels?username=${uname}&limit=9`)
+      setReels(data.items)
+    } catch {
+      // Same privacy rules as posts: nothing is shown to outside viewers.
+      setReels([])
+    }
+  }
+
   const load = async () => {
     const uname = username || user?.username
     if (!uname) return
@@ -46,7 +60,7 @@ export function ProfilePage() {
       setStats(data.stats)
       setViewer(data.viewer)
       setError(null)
-      await loadPosts(uname)
+      await Promise.all([loadPosts(uname), loadReels(uname)])
     } catch (err: any) {
       setProfile(null)
       setError(err?.message || 'Could not load this profile.')
@@ -77,8 +91,11 @@ export function ProfilePage() {
           : v,
       )
       setStats((s) => ({ ...s, followers: data.followers }))
-      if (canViewNow) await loadPosts(profile.username)
-      else setPosts([])
+      if (canViewNow) await Promise.all([loadPosts(profile.username), loadReels(profile.username)])
+      else {
+        setPosts([])
+        setReels([])
+      }
       if (data.requested) {
         toast.push({ title: 'Request sent', description: 'They will see it and can approve it.' })
       }
@@ -228,14 +245,99 @@ export function ProfilePage() {
             </div>
           </div>
         )}
-        {viewer && viewer.canViewContent &&
-          posts.map((post) => (
-            <PostCard
-              key={post.id}
-              item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
-              onDeleted={removePost}
-            />
-          ))}
+
+        {(!viewer || viewer.canViewContent || viewer.isMe) && (
+          <>
+            <div className="surface flex items-center gap-1 p-1">
+              <button
+                className={cn(
+                  'flex-1 rounded-2xl px-4 py-2 text-sm font-medium transition',
+                  tab === 'posts'
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                )}
+                onClick={() => setTab('posts')}
+              >
+                Posts
+              </button>
+              <button
+                className={cn(
+                  'flex-1 rounded-2xl px-4 py-2 text-sm font-medium transition',
+                  tab === 'reels'
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                )}
+                onClick={() => setTab('reels')}
+              >
+                Reels{reels.length > 0 ? ` · ${reels.length}` : ''}
+              </button>
+            </div>
+
+            {tab === 'posts' &&
+              posts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  item={{ kind: 'post', post, sharedBy: null, shareNote: '', sharedAt: null }}
+                  onDeleted={removePost}
+                />
+              ))}
+
+            {tab === 'posts' && posts.length === 0 && (
+              <div className="surface p-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                No posts yet.
+              </div>
+            )}
+
+            {tab === 'reels' && reels.length === 0 && (
+              <div className="surface flex flex-col items-center gap-2 p-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                <Play className="h-8 w-8 text-slate-400" />
+                No reels yet.
+              </div>
+            )}
+
+            {tab === 'reels' && reels.length > 0 && (
+              <>
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                  {reels.map((reel) => (
+                    <Link
+                      key={reel.id}
+                      to={`/reels?username=${encodeURIComponent(profile.username)}`}
+                      className="group relative aspect-[9/14] overflow-hidden rounded-xl bg-slate-900"
+                      title={reel.caption || `Reel by @${profile.username}`}
+                    >
+                      <video
+                        src={reel.videoUrl}
+                        className="h-full w-full object-cover transition group-hover:scale-105"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+                      <Play className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 text-white/90 drop-shadow" />
+                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-2 text-[11px] font-semibold text-white">
+                        <span className="flex items-center gap-1">
+                          <Eye className="h-3 w-3" />
+                          {reel.views}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Heart className={cn('h-3 w-3', reel.likedByMe && 'fill-rose-500 text-rose-500')} />
+                          {reel.likes}
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+                <Link
+                  to={`/reels?username=${encodeURIComponent(profile.username)}`}
+                  className="btn-ghost self-center"
+                >
+                  <Play className="h-4 w-4" />
+                  Watch reels
+                </Link>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       <Modal open={listKind !== null} onClose={() => setListKind(null)} title={listKind === 'followers' ? 'Followers' : 'Following'}>

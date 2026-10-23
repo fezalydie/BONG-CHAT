@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import {
@@ -160,6 +160,8 @@ function ReelCard({ reel, isMine, onLike, onComments, onDelete, onView }: ReelCa
 export function ReelsPage() {
   const { user } = useAuth()
   const toast = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filterUser = searchParams.get('username')
 
   const [reels, setReels] = useState<Reel[]>([])
   const [loading, setLoading] = useState(true)
@@ -186,7 +188,9 @@ export function ReelsPage() {
     if (reset) setLoading(true)
     else setLoadingMore(true)
     try {
-      const data = await api<{ items: Reel[]; hasMore: boolean }>(`/reels?page=${p}`)
+      const data = await api<{ items: Reel[]; hasMore: boolean }>(
+        `/reels?page=${p}${filterUser ? `&username=${encodeURIComponent(filterUser)}` : ''}`,
+      )
       setReels((prev) => (reset ? data.items : [...prev, ...data.items]))
       setHasMore(data.hasMore)
       setPage(reset ? 1 : p + 1)
@@ -201,9 +205,13 @@ export function ReelsPage() {
   }
 
   useEffect(() => {
+    // Reset pagination and view tracking when switching between the global feed
+    // and one author's reels.
+    viewed.current = new Set()
+    setReels([])
     void load(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [filterUser])
 
   const registerView = useCallback((id: number) => {
     if (viewed.current.has(id)) return
@@ -300,7 +308,12 @@ export function ReelsPage() {
         method: 'POST',
         body: JSON.stringify({ videoUrl, caption }),
       })
-      setReels((prev) => [data.reel, ...prev])
+      if (!filterUser || filterUser === user?.username) {
+        setReels((prev) => [data.reel, ...prev])
+      } else {
+        // The new reel is not part of the author feed currently being viewed.
+        setSearchParams({})
+      }
       setShowCreate(false)
       setVideoUrl('')
       setCaption('')
@@ -316,8 +329,18 @@ export function ReelsPage() {
     <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-2xl flex-col lg:h-[calc(100vh-2rem)]">
       <header className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Reels</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Short videos from people you follow.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold">{filterUser ? `@${filterUser}` : 'Reels'}</h1>
+            {filterUser && (
+              <button className="btn-ghost h-7 rounded-full px-2 text-xs" onClick={() => setSearchParams({})}>
+                <X className="h-3 w-3" />
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {filterUser ? 'Short videos from this account.' : 'Short videos from people you follow.'}
+          </p>
         </div>
         <button className="btn-primary shrink-0" onClick={() => setShowCreate(true)}>
           <Plus className="h-4 w-4" />
@@ -341,11 +364,15 @@ export function ReelsPage() {
           <Film className="h-10 w-10 text-slate-400" />
           <h2 className="text-lg font-semibold">No reels yet</h2>
           <p className="max-w-sm text-sm text-slate-500 dark:text-slate-400">
-            Follow more people, or be the first to publish a short video.
+            {filterUser
+              ? 'This account has not posted any reels yet.'
+              : 'Follow more people, or be the first to publish a short video.'}
           </p>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            <Plus className="h-4 w-4" /> Create a reel
-          </button>
+          {!filterUser && (
+            <button className="btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4" /> Create a reel
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex-1 snap-y snap-mandatory overflow-y-auto rounded-3xl">
